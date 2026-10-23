@@ -1,5 +1,5 @@
 {
-  "name": "woofers",
+  "name": "goldcleaning",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -11,7 +11,8 @@
     "db:seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
     "typecheck": "next typegen && tsc --noEmit",
     "test:e2e": "node tests/e2e/slice.mjs && node tests/e2e/booking.mjs",
-    "db:import": "tsx --env-file-if-exists=.env.local scripts/import-clients.ts"
+    "db:import": "tsx --env-file-if-exists=.env.local scripts/import-clients.ts",
+    "test:unit": "tsx --conditions=react-server --test tests/unit/*.test.ts"
   },
   "dependencies": {
     "date-fns": "^4.4.0",
