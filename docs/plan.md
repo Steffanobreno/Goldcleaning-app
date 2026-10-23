@@ -42,7 +42,7 @@ production), nodemailer (Gmail), web-push, Leaflet, Playwright (e2e), `tsx --tes
 1. **Two clients pick the same slot at the same time.** Only one request may hold it; the second sees "that time was just taken". The test goes in Task 6.
 2. **The price the client saw differs from the stored lines** (rates edited between page load and submit). The server recomputes from current rates, and if the total differs, the client sees the new total before it is saved. The test goes in Task 6.
 3. **ZIP outside the service cities, or unknown.** A clear message to call or text, and no draft or request is created with that ZIP. The test goes in Task 3.
-4. **DST weeks.** Slots on Mon Nov 2 2026 and Mon Mar 8 2027 are 09:00 and 13:00 local, not shifted. The test goes in Task 3.
+4. **DST weeks.** Slots on Mon Nov 2 2026 and Mon Mar 15 2027 (DST starts Mar 14) are 09:00 and 13:00 local, not shifted. The test goes in Task 3.
 5. **A large home (4+ bedrooms) booked in the morning.** It runs 09:00–13:00, and the 13:00 afternoon slot stays bookable. The test goes in Task 3.
 
 ---
@@ -136,7 +136,7 @@ A slot is open when `[start, start+durationMin)` overlaps no busy interval (acti
   - `time off covering the day offers nothing, and the day is omitted`
   - `Saturday and Sunday offer nothing`
   - `earliest = Mon 10:00 local hides Monday 09:00 and keeps Monday 13:00`
-  - `DST: 2026-11-02 09:00 local is 17:00Z; 2027-03-08 09:00 local is 16:00Z`
+  - `DST: 2026-11-02 09:00 local is 17:00Z; 2027-03-15 09:00 local is 16:00Z`
 - [ ] **Step 2: Write failing tests** (`service-area.test.ts`): `zipProblem` returns null for 94401, 94027, 95014, 94110 and 94538; returns the outside-area message for 95060 (Santa Cruz); returns the unknown-ZIP message for 00000.
 - [ ] **Step 3:** Run `npm run test:unit` and expect FAIL.
 - [ ] **Step 4:** Implement `openSlots`, then rewire `findSlots` to load slot defs, busy and time off, and call it. Remove the `near`/`best` logic.
