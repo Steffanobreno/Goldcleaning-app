@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireStaff, type StaffContext } from "@/lib/auth";
 import { isExclusionViolation, sql } from "@/lib/db";
-import { hm, isYmd, timeLabel, weekdayOf, ymd, zonedToUtc } from "@/lib/format";
+import { addDaysYmd, hm, isYmd, timeLabel, todayYmd, weekdayOf, ymd, zonedToUtc } from "@/lib/format";
 import { workingHoursFor } from "@/lib/data/appointments";
 import { insertAppointment } from "@/lib/data/appointment-write";
 import { loadCatalog } from "@/lib/data/catalog";
@@ -12,6 +12,8 @@ import { recalcInvoice } from "@/lib/data/invoices";
 import { notifyAppointment } from "@/lib/messaging";
 import { NEXT_STATUS } from "@/lib/appointment-status";
 import { PAYMENT_METHODS } from "@/lib/payment-methods";
+import { seriesForFrequency } from "@/lib/repeat";
+import { bookSeries } from "@/lib/data/series";
 import { asGroomer, ownGroomer } from "@/lib/data/staff";
 
 export type FormState = { error?: string; warning?: string } | undefined;
@@ -129,8 +131,9 @@ export async function createAppointmentAction(clientId: string, _: FormState, fo
 
 export async function setStatusAction(appointmentId: string, status: string) {
   const staff = await requireStaff();
-  const [appt] = await sql`select status from appointments where id = ${appointmentId} and business_id = ${staff.businessId}`;
+  const [appt] = await sql`select status, frequency from appointments where id = ${appointmentId} and business_id = ${staff.businessId}`;
   if (!appt || !NEXT_STATUS[appt.status]?.includes(status)) return;
+  const accepted = appt.status === "requested" && status === "confirmed";
   try {
     await sql`
       update appointments set status = ${status},
@@ -145,11 +148,11 @@ export async function setStatusAction(appointmentId: string, status: string) {
     if (isExclusionViolation(e)) redirect(`/appointments/${appointmentId}?conflict=1`);
     throw e;
   }
-  // Tell the client when it affects them. An accepted online request gets the "booked"
-  // message with the link to confirm; the reminder follows as for any visit.
+  // Tell the client when it affects them. An accepted online request gets the confirmation
+  // with the link to see or change it; the reminder follows as for any visit.
   if (status === "cancelled") await notifyAppointment(appointmentId, "cancelled");
   if (status === "declined") await notifyAppointment(appointmentId, "request_declined");
-  if (appt.status === "requested" && status === "unconfirmed") await notifyAppointment(appointmentId, "booked");
+  if (accepted) await notifyAppointment(appointmentId, "request_accepted");
   revalidatePath(`/appointments/${appointmentId}`);
   revalidatePath("/today");
   revalidatePath("/calendar");
@@ -157,6 +160,16 @@ export async function setStatusAction(appointmentId: string, status: string) {
   if (status === "completed") {
     await openInvoice(staff, appointmentId);
     redirect(`/appointments/${appointmentId}/checkout`);
+  }
+  // Accepting a recurring request books the next cleanings up to the booking window; the
+  // visit's page then says how many, and which dates were taken.
+  const repeat = accepted ? seriesForFrequency(appt.frequency) : null;
+  if (repeat) {
+    const [b] = await sql`select booking_days_ahead from businesses where id = ${staff.businessId}`;
+    const until = addDaysYmd(todayYmd(staff.timezone), b.booking_days_ahead);
+    const r = await bookSeries(staff, appointmentId, { freq: repeat.freq, every: repeat.interval, count: null, until }, "confirmed");
+    const q = "error" in r ? "" : `&repeat=${r.created}${r.skipped.length ? `&taken=${r.skipped.map((x) => x.date).join(",")}` : ""}`;
+    redirect(`/appointments/${appointmentId}?accepted=1${q}`);
   }
 }
 

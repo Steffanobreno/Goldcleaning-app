@@ -7,7 +7,7 @@ import { getInvoiceForAppointment } from "@/lib/data/invoices";
 import { smsTextFor } from "@/lib/messaging";
 import { sql } from "@/lib/db";
 import { fullName } from "@/lib/data/clients";
-import { addDaysYmd, hm, longDayLabel, minutesLabel, money, phoneLabel, timeLabel, ymd } from "@/lib/format";
+import { addDaysYmd, dayLabel, hm, longDayLabel, minutesLabel, money, phoneLabel, timeLabel, ymd, zonedToUtc } from "@/lib/format";
 import { Button, Card, Notice, Page, PageHeader, statusLabel, Textarea } from "@/components/ui";
 import { Calendar, Card as Card2, Chat, Check, ChevronDown, ChevronRight, Clock, Close, Hourglass, Pencil, Phone, Pin, Plus, Van } from "@/components/icons";
 import { NEXT_STATUS } from "@/lib/appointment-status";
@@ -23,7 +23,7 @@ export const metadata: Metadata = { title: "Appointment" };
 
 // The main next step for each status, shown as the big button.
 const PRIMARY: Record<string, { to: string; label: string } | undefined> = {
-  requested: { to: "unconfirmed", label: "Accept request" },
+  requested: { to: "confirmed", label: "Accept request" },
   unconfirmed: { to: "confirmed", label: "Mark as confirmed" },
   confirmed: { to: "en_route", label: "I'm on the way" },
   en_route: { to: "in_progress", label: "Check in" },
@@ -33,6 +33,7 @@ const PRIMARY: Record<string, { to: string; label: string } | undefined> = {
 const TRIGGER_LABEL: Record<string, string> = {
   booked: "Booking confirmation",
   request_received: "Request received",
+  request_accepted: "Request accepted",
   request_declined: "Request declined",
   reminder: "Reminder",
   confirmed: "Confirmed",
@@ -91,6 +92,16 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
       <PageHeader title="Appointment" back={`/today?date=${ymd(appt.start_at, tz)}`} />
       <Page>
         {sp.booked === "1" && <Notice kind="success">Appointment booked.</Notice>}
+        {sp.accepted === "1" && (
+          <Notice kind="success">
+            Request accepted{typeof sp.repeat === "string" ? `, and ${sp.repeat} more cleaning${sp.repeat === "1" ? "" : "s"} booked in the series` : ""}.
+          </Notice>
+        )}
+        {typeof sp.taken === "string" && (
+          <Notice kind="warn">
+            Already taken, so not booked: {sp.taken.split(",").map((d) => dayLabel(zonedToUtc(d, "12:00", tz), tz)).join(", ")}. Book those at another time.
+          </Notice>
+        )}
         {sp.conflict === "1" && <Notice kind="error">Another appointment already uses that time.</Notice>}
         {appt.reschedule_requested_at && (
           <div className="rounded-2xl border border-warn bg-warn-soft px-4 py-3 text-warn">

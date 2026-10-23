@@ -1,92 +1,97 @@
-// Repeating visits and "add to my calendar", end to end. Run after slice.mjs and booking.mjs.
-// APPT = id of a booked (unconfirmed or confirmed) visit, TOKEN = its public token.
-// Repeat every 2 weeks, 4 times → 3 more booked → change to every week, 3 times → the later
-// copies are replaced → stop repeating removes them. The visit's .ics file and the email buttons.
-// Usage: APPT=... TOKEN=... node tests/e2e/repeat.mjs [baseUrl] [screenshotDir]
-import { mkdirSync } from "node:fs";
+// Recurring cleanings from the booked frequency, end to end. Run after slice.mjs (owner).
+// A client requests "every 2 weeks" on a Tuesday morning → one of the series' dates is
+// already taken → the owner accepts → the next cleanings are booked every 2 weeks up to the
+// booking window with the same price, the taken date is reported and not booked → Stop
+// repeating removes the copies.
+// Usage: DATABASE_URL=... node tests/e2e/repeat.mjs [baseUrl]
 import { chromium } from "playwright";
+import postgres from "postgres";
 
 const BASE = process.argv[2] ?? "http://localhost:3000";
-const SHOTS = process.argv[3] ?? "replica/clone-screens";
-const { APPT, TOKEN } = process.env;
-if (!APPT || !TOKEN) throw new Error("Set APPT and TOKEN");
-mkdirSync(SHOTS, { recursive: true });
-
+const sql = postgres(process.env.DATABASE_URL ?? "postgres://postgres@localhost:5499/goldcleaning", { max: 1 });
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH ?? "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
 });
-const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
-const page = await ctx.newPage();
+const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-const shot = (name) => page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true });
 const step = (msg) => console.log(`✓ ${msg}`);
 const fail = (msg) => {
   throw new Error(msg);
 };
+
+// The client asks for every 2 weeks, 2/1, on the first open Tuesday morning.
+await page.goto(`${BASE}/book`);
+await page.getByRole("radio", { name: /^Every 2 weeks/ }).click();
+await page.getByLabel("Bedrooms").selectOption("2");
+await page.getByLabel("First name").fill("Rita");
+await page.getByLabel("Last name").fill("Repeat");
+await page.getByLabel("Email").fill("rita@example.com");
+await page.getByLabel("Mobile phone").fill("6505550401");
+await page.getByRole("button", { name: "See available times" }).click();
+await page.locator("button[aria-label*='open time']").first().waitFor();
+const tuesday = page.locator("button[aria-label^='Tuesday']:not([disabled])").first();
+while (!(await tuesday.count())) await page.getByRole("button", { name: "Next month" }).click();
+await tuesday.click();
+await page.getByRole("button", { name: /^Morning ·/ }).click();
+await page.getByLabel("Street address").fill("12 Laurel St");
+await page.getByLabel("City").fill("San Carlos");
+await page.getByLabel("ZIP").fill("94070");
+await page.getByRole("radio", { name: "Someone will be home" }).click();
+await page.getByTestId("book-total").getByText("$183.00").waitFor(); // 163 + 1 bedroom × 20
+await page.getByRole("button", { name: "Request booking" }).click();
+await page.getByText("Thank you, Rita!").waitFor();
+const [req] = await sql`
+  select a.id, a.start_at, a.end_at, a.staff_id, a.business_id from appointments a join clients c on c.id = a.client_id
+  where c.phone = '+16505550401'`;
+step("Rita requested every 2 weeks, 2 bd / 1 ba, Tuesday 9:00, $183.00");
+
+// Four weeks later the morning is already taken by another client.
+const later = (weeks) => new Date(req.start_at.getTime() + weeks * 7 * 86_400_000);
+const [other] = await sql`
+  insert into clients (business_id, first_name, last_name, phone) values (${req.business_id}, 'Other', 'Client', '+16505550499')
+  returning id`;
+await sql`insert into appointments (business_id, client_id, staff_id, start_at, end_at, status, source)
+          values (${req.business_id}, ${other.id}, ${req.staff_id}, ${later(4)}, ${new Date(later(4).getTime() + 3 * 3600_000)}, 'confirmed', 'manual')`;
 
 await page.goto(`${BASE}/login`);
 await page.fill('input[name="email"]', "owner@example.com");
 await page.fill('input[name="password"]', "correct horse battery");
 await page.click('button[type="submit"]');
 await page.waitForURL(/\/today/);
+await page.goto(`${BASE}/requests`);
+await page.getByText("Regular Clean · Every 2 weeks · 2 bd / 1 ba").waitFor();
+await page.getByRole("article", { name: "Rita Repeat" }).getByRole("button", { name: "Accept" }).click();
+await page.waitForURL(/\/appointments\/[0-9a-f-]+\?accepted=1/);
+await page.getByText(/Request accepted, and \d+ more cleanings? booked in the series/).waitFor();
+await page.getByText(/Already taken, so not booked: /).waitFor();
+step("accepted: the series is booked and the taken date is reported");
 
-await page.goto(`${BASE}/appointments/${APPT}`);
-await page.getByRole("link", { name: /Repeat this appointment/ }).click();
-await page.waitForURL(/\/repeat$/);
-await page.getByRole("button", { name: "Every 2 weeks" }).click();
-await page.locator('input[name="count"]').fill("4");
-await page.getByRole("heading", { name: "4 visits" }).waitFor();
-await shot("repeat-form");
-await page.getByRole("button", { name: "Save and book 3 more" }).click();
-await page.getByText(/Booked \d+ more visits?: every 2 weeks/).waitFor();
-const booked = Number((await page.getByText(/Booked \d+ more/).textContent()).match(/Booked (\d+)/)[1]);
-const skipped = await page.locator("li", { hasText: "·" }).count();
-if (booked + skipped !== 3) fail(`expected 3 booked or skipped, got ${booked} + ${skipped}`);
-await shot("repeat-done");
-step(`every 2 weeks, 4 times: ${booked} booked, ${skipped} skipped (taken)`);
+const rows = await sql`
+  select a.start_at, a.status,
+    (select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+     where ah.appointment_id = a.id)::int as total
+  from appointments a join clients c on c.id = a.client_id where c.phone = '+16505550401' order by a.start_at`;
+const weeks = rows.map((r) => Math.round((r.start_at - req.start_at) / (7 * 86_400_000)));
+const [{ ahead }] = await sql`select booking_days_ahead as ahead from businesses limit 1`;
+const expected = [0, 2, 6, 8].filter((w) => req.start_at.getTime() + w * 7 * 86_400_000 <= Date.now() + (ahead + 1) * 86_400_000);
+if (weeks.join() !== expected.join()) fail(`series weeks ${weeks.join()} (expected ${expected.join()}: week 4 was taken)`);
+if (rows.some((r) => r.total !== 18300 || r.status !== "confirmed")) fail(`copies wrong: ${JSON.stringify(rows)}`);
+step(`booked every 2 weeks (weeks ${weeks.join(", ")}), all confirmed at $183.00; week 4 skipped`);
 
-await page.getByRole("link", { name: "Done" }).click();
-await page.getByText(new RegExp(`Every 2 weeks on \\w+day, 4 times · ${booked} more after this one`)).waitFor();
-step("appointment shows the repeat rule and how many are coming up");
+await page.goto(`${BASE}/calendar?view=agenda&date=${later(2).toISOString().slice(0, 10)}`);
+await page.getByRole("link", { name: /Rita/ }).first().waitFor();
+step("the calendar shows the next cleaning in the series");
 
-// Change the rule: the later copies are replaced, not added to.
-await page.getByRole("link", { name: /Repeat appointment/ }).click();
-await page.getByRole("button", { name: "Every week" }).click();
-await page.locator('input[name="count"]').fill("3");
-await page.getByRole("button", { name: "Save and book 2 more" }).click();
-await page.getByText(/Booked \d+ more visits?: every week/).waitFor();
-const booked2 = Number((await page.getByText(/Booked \d+ more/).textContent()).match(/Booked (\d+)/)[1]);
-await page.getByRole("link", { name: "Done" }).click();
-await page.getByText(new RegExp(`Every week on \\w+day, 3 times · ${booked2} more after this one`)).waitFor();
-step(`changed to every week, 3 times: old copies replaced (${booked2} after this one)`);
-
-
-await page.goto(`${BASE}/appointments/${APPT}/repeat`);
+// Stop repeating removes the later copies (none was confirmed one by one or paid).
+await page.goto(`${BASE}/appointments/${req.id}/repeat`);
 await page.getByRole("button", { name: /Stop repeating/ }).click();
-await page.getByText("This visit no longer repeats").waitFor();
-await page.goto(`${BASE}/appointments/${APPT}`);
-await page.getByRole("link", { name: /Repeat this appointment/ }).waitFor();
-step("stop repeating removes the later visits");
+await page.getByText("This visit no longer repeats.").waitFor();
+const [{ n }] = await sql`select count(*)::int as n from appointments a join clients c on c.id = a.client_id where c.phone = '+16505550401'`;
+if (n !== 1) fail(`after stopping, ${n} cleanings are left`);
+step("Stop repeating removed the later cleanings");
 
-// The client's "add to my calendar" file and buttons.
-const ics = await page.request.get(`${BASE}/a/${TOKEN}/calendar`);
-const body = await ics.text();
-if (!ics.ok() || !ics.headers()["content-type"].startsWith("text/calendar")) fail(`ics: ${ics.status()}`);
-if (!/BEGIN:VEVENT[\s\S]*SUMMARY:.*grooming[\s\S]*BEGIN:VALARM[\s\S]*END:VCALENDAR/.test(body)) fail("ics content wrong");
-step("visit .ics file with grooming title and reminders");
-await page.goto(`${BASE}/a/${TOKEN}`);
-await page.getByRole("link", { name: /Add to iPhone/ }).waitFor();
-const google = await page.getByRole("link", { name: /Google Calendar/ }).getAttribute("href");
-if (!google.startsWith("https://calendar.google.com/calendar/render?action=TEMPLATE")) fail("google link wrong");
-await shot("client-calendar-buttons");
-step("client page: Add to iPhone and Google Calendar");
-
-await page.goto(`${BASE}/settings/messages/preview?trigger=booked`);
-const html = await page.locator("iframe").getAttribute("srcdoc");
-if (!html.includes("Google Calendar") || !html.includes("Apple / iPhone")) fail("email has no calendar buttons");
-step("booking email has the calendar buttons");
-
-if (errors.length) fail(`page errors: ${errors.join(" | ")}`);
 await browser.close();
+await sql.end();
+if (errors.length) fail(`page errors: ${errors.join(" | ")}`);
 console.log("All good.");

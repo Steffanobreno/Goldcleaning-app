@@ -52,3 +52,11 @@ export function ruleLabel(first: string, rule: RepeatRule) {
   const ends = rule.count ? `, ${rule.count} times` : rule.until ? `, until ${fmt(rule.until, { month: "short", day: "numeric", year: "numeric" })}` : "";
   return `Every ${unit}${on}${ends}`;
 }
+
+/** The repeat rule a booked frequency stands for (null for a one-time cleaning). */
+export function seriesForFrequency(f: "one_time" | "weekly" | "biweekly" | "every_4_weeks"): { freq: "week"; interval: 1 | 2 | 4 } | null {
+  if (f === "weekly") return { freq: "week", interval: 1 };
+  if (f === "biweekly") return { freq: "week", interval: 2 };
+  if (f === "every_4_weeks") return { freq: "week", interval: 4 };
+  return null;
+}

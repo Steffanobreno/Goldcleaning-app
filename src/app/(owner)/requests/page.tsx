@@ -82,7 +82,7 @@ export default async function RequestsPage({ searchParams }: PageProps<"/request
           <Empty title="No requests waiting">New requests from your booking page show up here.</Empty>
         ) : (
           rows.map((r) => (
-            <Card key={r.id} className="space-y-2">
+            <Card key={r.id} role="article" aria-label={r.client} className="space-y-2">
               <div className="flex items-baseline justify-between gap-2">
                 <Link href={`/appointments/${r.id}`} className="font-semibold underline-offset-2 hover:underline">
                   {r.client}
@@ -102,7 +102,7 @@ export default async function RequestsPage({ searchParams }: PageProps<"/request
                 <form action={setStatusAction.bind(null, r.id, "declined")}>
                   <Button type="submit" kind="danger" className="w-full">Decline</Button>
                 </form>
-                <form action={setStatusAction.bind(null, r.id, "unconfirmed")}>
+                <form action={setStatusAction.bind(null, r.id, "confirmed")}>
                   <Button type="submit" className="w-full">Accept</Button>
                 </form>
               </div>

@@ -20,6 +20,7 @@ import { addDaysYmd, dayRangeUtc, hm, money, phoneLabel, todayYmd, ymd } from ".
 export type Trigger =
   | "booked"
   | "request_received"
+  | "request_accepted"
   | "request_declined"
   | "reminder"
   | "confirmed"
@@ -274,6 +275,7 @@ export async function queueDueMessages(businessId: string) {
 
 const HEADINGS: Partial<Record<Trigger, string>> = {
   request_received: "Your request",
+  request_accepted: "You're confirmed!",
   booked: "You're booked!",
   reminder: "Your next visit",
   confirmed: "Confirmed",
@@ -297,7 +299,7 @@ export async function emailDetails(appointmentId: string, trigger: Trigger): Pro
     from appointments a join businesses b on b.id = a.business_id where a.id = ${appointmentId}`;
   if (!a) return null;
   const live = !["cancelled", "declined", "no_show"].includes(a.status);
-  const calendar = ["booked", "confirmed", "reminder"].includes(trigger) ? await clientEvent({ id: appointmentId }) : null;
+  const calendar = ["booked", "request_accepted", "confirmed", "reminder"].includes(trigger) ? await clientEvent({ id: appointmentId }) : null;
   return {
     heading,
     badge:

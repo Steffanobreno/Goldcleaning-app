@@ -95,8 +95,15 @@ await owner.getByText("$323.40").first().waitFor();
 await owner.getByText("Regular Clean · Weekly · 3 bd / 2 ba / 1 half").waitFor();
 await owner.screenshot({ path: `${SHOTS}/requests.png`, fullPage: true });
 await owner.getByRole("button", { name: "Accept" }).first().click();
-await owner.getByText("No requests waiting").waitFor();
-step("owner saw the request with its price and accepted it");
+await owner.waitForURL(/\/appointments\/[0-9a-f-]+\?accepted=1/);
+await owner.getByText(/Request accepted, and \d+ more cleanings booked in the series/).waitFor();
+const [{ status, copies }] = await sql`
+  select a.status, (select count(*)::int from appointments x where x.series_id = a.series_id and x.id <> a.id) as copies
+  from appointments a join clients c on c.id = a.client_id where c.phone = '+16505550201' order by a.start_at limit 1`;
+if (status !== "confirmed" || copies < 7) fail(`accepted weekly request: ${status}, ${copies} copies`);
+const [mail] = await sql`select subject from messages where template_trigger = 'request_accepted' and to_email = 'bea@example.com'`;
+if (!mail) fail("no confirmation email queued");
+step(`owner accepted the weekly request: confirmed, ${copies} more weekly cleanings booked, confirmation email queued`);
 
 // 3. Two clients press Request for the same time at once: one gets it.
 const a = await newPage();
