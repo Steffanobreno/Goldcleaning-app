@@ -126,3 +126,13 @@ export function agreedQuote(cat: Catalog, input: Omit<QuoteInput, "extras">, cen
   const lines = [line("service", service.id, `${service.name} · ${FREQUENCY_LABEL[input.frequency]}`, 1, cents)];
   return { service, lines, totalCents: cents, durationMin: durationMinutes(input.home, cat.rule) };
 }
+
+// ---------------------------------------------------------------- recurring revenue
+
+/** Cleanings a month for each frequency: 52, 26 and 13 a year, over 12 months. */
+export const VISITS_PER_MONTH: Record<Frequency, number> = { one_time: 0, weekly: 52 / 12, biweekly: 26 / 12, every_4_weeks: 13 / 12 };
+
+/** What the recurring clients bring in a month, from each one's current price per cleaning. */
+export function recurringMonthlyCents(clients: { frequency: Frequency; totalCents: number }[]) {
+  return Math.round(clients.reduce((sum, c) => sum + c.totalCents * VISITS_PER_MONTH[c.frequency], 0));
+}

@@ -175,3 +175,22 @@ test("agreedQuote: refuses a missing or zero price and unknown services", () => 
   assert.ok("error" in agreedQuote(CATALOG, { ...base, serviceId: "svc-airbnb" }, 12.5));
   assert.ok("error" in agreedQuote(CATALOG, { ...base, serviceId: "nope" }, 18000));
 });
+
+import { recurringMonthlyCents } from "../../src/lib/pricing";
+
+test("recurringMonthlyCents: weekly $238.40 + every 2 weeks $163 + every 4 weeks $183", () => {
+  // 23840 × 52/12 + 16300 × 26/12 + 18300 × 13/12 = 103306.67 + 35316.67 + 19825 = 158448.33
+  assert.equal(
+    recurringMonthlyCents([
+      { frequency: "weekly", totalCents: 23840 },
+      { frequency: "biweekly", totalCents: 16300 },
+      { frequency: "every_4_weeks", totalCents: 18300 },
+    ]),
+    158448,
+  );
+});
+
+test("recurringMonthlyCents: one-time cleanings add nothing; no clients is 0", () => {
+  assert.equal(recurringMonthlyCents([{ frequency: "one_time", totalCents: 29800 }]), 0);
+  assert.equal(recurringMonthlyCents([]), 0);
+});

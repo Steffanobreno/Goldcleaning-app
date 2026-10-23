@@ -91,17 +91,19 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <Tile label="Collected" value={money(r.collected + r.tips)} sub={r.tips ? `incl. ${money(r.tips)} tips` : "payments received"} strong />
-          <Tile label="Expected" value={money(r.expected)} sub="services booked" />
+          <Tile label="Expected" value={money(r.expected)} sub="cleanings booked" />
           <Tile label="Cleanings done" value={String(r.finished)} sub={`${r.appts} booked`} />
           <Tile label="Cancelled" value={String(r.cancelled)} sub={`${r.no_show} no-show`} />
           <Tile label="Clients" value={String(r.clients)} sub={`${r.newClients} new`} />
-          <Tile label="Average visit" value={money(avg)} sub="expected per visit" />
+          <Tile label="Average ticket" value={money(avg)} sub="per cleaning" />
+          <Tile label="Recurring clients" value={String(r.recurringClients)} sub="weekly, every 2 or 4 weeks" />
+          <Tile label="Recurring per month" value={money(r.recurringMonthlyCents)} sub="at today's prices" />
         </div>
 
         <section className="space-y-2">
           <h2 className="section-label">Money</h2>
           <dl className="card divide-y divide-line">
-            <Row label="Expected service price" value={money(r.expected)} hint="Services on visits in this period (not cancelled)" />
+            <Row label="Expected" value={money(r.expected)} hint="Cleanings in this period (not cancelled)" />
             <Row label="Collected (without tips)" value={money(r.collected)} hint={`${r.paymentsCount} payment${r.paymentsCount === 1 ? "" : "s"} received in this period`} />
             <Row label="Tips" value={money(r.tips)} />
             <Row label="Unpaid" value={money(r.unpaid)} hint="Finished visits not checked out yet" warn={r.unpaid > 0} />
@@ -225,7 +227,7 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
           </section>
         )}
         <p className="text-center text-xs text-muted">
-          Collected counts payments recorded at checkout. Visits imported from the old app have no payments here.
+          Collected counts payments recorded at checkout. Recurring numbers are for today, whatever the period.
         </p>
       </Page>
     </>

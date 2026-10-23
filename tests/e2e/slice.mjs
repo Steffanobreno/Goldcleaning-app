@@ -168,8 +168,15 @@ await shot("client");
 await page.goto(`${BASE}/reports?period=today`);
 await page.getByText("$298.40").first().waitFor();
 await page.getByText("incl. $20.00 tips").waitFor();
+// From today to the cleaning's day: one cleaning done, Regular Clean under By service.
+const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+await page.goto(`${BASE}/reports?from=${today}&to=${date}`);
+const tile = (label) => page.locator(".card", { has: page.getByText(label, { exact: true }) });
+await tile("Cleanings done").getByText("1", { exact: true }).waitFor();
+await page.getByRole("heading", { name: "By service" }).waitFor();
+await page.locator("li", { hasText: "Regular Clean" }).getByText("×2").waitFor();
 await shot("reports");
-step("client profile and reports render");
+step("reports: $298.40 collected with the tip, 1 cleaning done, Regular Clean under By service");
 
 await browser.close();
 if (errors.length) {

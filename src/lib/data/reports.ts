@@ -2,6 +2,7 @@ import "server-only";
 import type { StaffContext } from "../auth";
 import { sql } from "../db";
 import { dayRangeUtc } from "../format";
+import { recurringMonthlyCents, type Frequency } from "../pricing";
 
 // Money and work for a date range (inclusive, in the business time zone).
 // "Expected" counts the services on visits that weren't cancelled or no-shows;
@@ -17,7 +18,7 @@ export async function report(staff: StaffContext, from: string, to: string, grou
   const tz = staff.timezone;
   const biz = staff.businessId;
 
-  const [totals, payments, methods, services, buckets, topClients, newClients] = await Promise.all([
+  const [totals, payments, methods, services, buckets, topClients, newClients, recurring] = await Promise.all([
     sql<{ appts: number; finished: number; cancelled: number; no_show: number;
           clients: number; expected: number; unpaid: number }[]>`
       with a as (
@@ -81,6 +82,16 @@ export async function report(staff: StaffContext, from: string, to: string, grou
     sql<{ n: number }[]>`
       select count(*)::int as n from clients
       where business_id = ${biz} and created_at >= ${start} and created_at < ${end} and source <> 'import'`,
+    // Recurring clients today (not tied to the period): each one's next weekly, every-2 or
+    // every-4-weeks cleaning, at its current price.
+    sql<{ frequency: Frequency; total: number }[]>`
+      select distinct on (a.client_id) a.frequency,
+        coalesce((select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+                  where ah.appointment_id = a.id), 0)::int as total
+      from appointments a
+      where a.business_id = ${biz} and a.frequency <> 'one_time' and a.start_at > now()
+        and a.status in ('requested', 'unconfirmed', 'confirmed')
+      order by a.client_id, a.start_at`,
   ]);
 
   return {
@@ -89,6 +100,8 @@ export async function report(staff: StaffContext, from: string, to: string, grou
     tips: payments[0].tips,
     paymentsCount: payments[0].count,
     newClients: newClients[0].n,
+    recurringClients: recurring.length,
+    recurringMonthlyCents: recurringMonthlyCents(recurring.map((r) => ({ frequency: r.frequency, totalCents: r.total }))),
     methods,
     services,
     buckets,
