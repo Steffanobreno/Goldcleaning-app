@@ -1,12 +1,13 @@
-// Abandoned online bookings, end to end. Run after slice.mjs and booking.mjs.
-// Someone types phone, name, email and address on /book and stops → the draft is saved →
-// (the shell then runs the reminder step) → the owner sees it under Booking requests with
-// Text / Call / Clear, and the "finish" link opens /book with the phone filled in.
-// Usage: STAGE=start|after node tests/e2e/abandoned.mjs [baseUrl]
+// Abandoned online bookings, end to end. Run after slice.mjs (it reuses that owner).
+// Someone picks a cleaning on /book, fills in the contact step and leaves → the draft keeps
+// the service, home size and total → the owner sees it, adds them as a client (with that home)
+// and books them → it shows as Recovered. Delete hides one from the list.
+// Usage: DATABASE_URL=... node tests/e2e/abandoned.mjs [baseUrl]
 import { chromium } from "playwright";
+import postgres from "postgres";
 
 const BASE = process.argv[2] ?? "http://localhost:3000";
-const STAGE = process.env.STAGE ?? "start";
+const sql = postgres(process.env.DATABASE_URL ?? "postgres://postgres@localhost:5499/goldcleaning", { max: 1 });
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH ?? "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
 });
@@ -17,79 +18,74 @@ const step = (msg) => console.log(`✓ ${msg}`);
 const fail = (msg) => {
   throw new Error(msg);
 };
-const button = (name) => page.getByRole("button", { name, exact: true });
 
-if (STAGE === "start") {
+async function startAndLeave(first, phone) {
   await page.goto(`${BASE}/book`);
-  await page.getByLabel("Mobile phone").fill("6505550166");
-  await button("Next").click();
-  await page.getByText("It looks like your first visit with us.").waitFor();
-  await page.getByLabel("First name").fill("Lily");
+  await page.getByRole("radio", { name: "Deep Clean" }).click();
+  await page.getByLabel("Bedrooms").selectOption("4");
+  await page.getByLabel("Full baths").selectOption("3");
+  await page.getByRole("button", { name: /^Baseboards/ }).click();
+  await page.getByLabel("First name").fill(first);
   await page.getByLabel("Last name").fill("Left");
-  await page.getByLabel("Email").fill("lily@example.com");
-  await button("Continue").click();
-  await page.getByLabel("Street address").fill("3 Bay St");
-  await page.getByLabel("City").fill("San Mateo");
-  await page.getByLabel("ZIP code").fill("94402");
-  await button("Continue").click();
-  await page.getByLabel("Breed").waitFor();
-  await page.waitForTimeout(1500); // the tracking call is fire-and-forget
-  step("started a booking and stopped at the pet step");
-} else {
-  await page.goto(`${BASE}/login`);
-  await page.fill('input[name="email"]', "owner@example.com");
-  await page.fill('input[name="password"]', "correct horse battery");
-  await page.click('button[type="submit"]');
-  await page.waitForURL(/\/today/);
-  await page.goto(`${BASE}/requests`);
-  await page.getByText(/didn't finish booking online/).click();
-  await page.waitForURL(/\/abandoned/);
-  const card = page.getByRole("link", { name: /Lily Left/ });
-  await card.getByText("Contacted").waitFor(); // the recovery message went out
-  await card.getByText(/Abandoned step: Address/).waitFor();
-  step("Abandoned bookings tab: Lily is Contacted, stopped at Address");
-
-  await card.click();
-  await page.waitForURL(/\/abandoned\/[0-9a-f-]+$/);
-  await page.getByText("lily@example.com").waitFor();
-  await page.getByText(/3 Bay St, San Mateo, 94402/).waitFor();
-  step("detail page shows the email and the address she typed");
-
-  await page.goto(`${BASE}/book?phone=6505550166`);
-  if ((await page.getByLabel("Mobile phone").inputValue()).replace(/\D/g, "") !== "6505550166") fail("finish link should fill the phone");
-  step("the finish link opens the booking page with the phone filled in");
-
-  // Add client → book her → Recovered with the visit's value.
-  await page.goto(`${BASE}/abandoned`);
-  await page.getByRole("link", { name: /Lily Left/ }).click();
-  await page.getByRole("button", { name: "Add client" }).click();
-  await page.waitForURL(/\/appointments\/new\?client=/);
-  await page.getByRole("link", { name: "Add a pet" }).waitFor(); // she stopped before adding her pet
-  step("Add client makes Lily a client and opens the booking form");
-  const clientId = new URL(page.url()).searchParams.get("client");
-  await page.goto(`${BASE}/clients/${clientId}/pets/new`);
-  await page.fill('input[name="name"]', "Pip");
-  await page.selectOption('select[name="size_class"]', "small");
-  await page.getByRole("button", { name: "Save and book" }).click();
-  await page.waitForURL(/\/appointments\/new\?client=/);
-  const sel = page.locator('select[name^="svc:"]');
-  await sel.selectOption(await sel.locator("option", { hasText: "Bath - Small" }).getAttribute("value"));
-  await page.getByRole("button", { name: "Book appointment" }).click();
-  await page.waitForURL(/\/appointments\/[0-9a-f-]+\?booked=1/);
-  await page.goto(`${BASE}/abandoned?status=recovered`);
-  await page.getByRole("link", { name: /Lily Left/ }).getByText("Recovered").waitFor();
-  step("after booking her, Lily is Recovered and counted in the stats");
-
-  // Delete another one.
-  await page.goto(`${BASE}/abandoned?status=contacted`);
-  const before = await page.locator('a[href^="/abandoned/"]').count();
-  if (before > 0) {
-    await page.locator('a[href^="/abandoned/"]').first().click();
-    await page.getByRole("button", { name: "Delete" }).click();
-    await page.waitForURL(/\/abandoned$/);
-    step("Delete removes an abandoned booking from the list");
-  }
+  await page.getByLabel("Email").fill(`${first.toLowerCase()}@example.com`);
+  await page.getByLabel("Mobile phone").fill(phone);
+  await page.getByRole("button", { name: "See available times" }).click();
+  await page.locator("button[aria-label*='open time']").first().waitFor();
+  await page.waitForTimeout(1000); // the draft call is fire-and-forget
 }
-if (errors.length) fail(`page errors: ${errors.join(" | ")}`);
+await startAndLeave("Lily", "6505550166");
+await startAndLeave("Max", "6505550167");
+// They left more than 20 minutes ago.
+await sql`update booking_drafts set updated_at = now() - interval '30 minutes', created_at = now() - interval '30 minutes'
+          where phone in ('+16505550166', '+16505550167')`;
+const [d] = await sql`select summary, details from booking_drafts where phone = '+16505550166'`;
+if (d?.details?.totalCents !== 33100 + 3 * 2500 + 2 * 4200 + 5000) fail(`draft details wrong: ${JSON.stringify(d)}`);
+step("started a Deep Clean 4/3 + baseboards ($540), left after the contact step");
+
+await page.goto(`${BASE}/login`);
+await page.fill('input[name="email"]', "owner@example.com");
+await page.fill('input[name="password"]', "correct horse battery");
+await page.click('button[type="submit"]');
+await page.waitForURL(/\/today/);
+await page.goto(`${BASE}/requests`);
+await page.getByText(/didn't finish booking online/).click();
+await page.waitForURL(/\/abandoned/);
+const card = page.getByRole("link", { name: /Lily Left/ });
+await card.getByText(/Abandoned step: Name and email · Deep Clean · One-time · 4 bd \/ 3 ba/).waitFor();
+step("Abandoned list: Lily stopped after name and email, with what she picked");
+
+await card.click();
+await page.waitForURL(/\/abandoned\/[0-9a-f-]+$/);
+await page.getByText("lily@example.com").waitFor();
+await page.getByText("4 bd / 3 ba").waitFor();
+await page.getByText("Baseboards").waitFor();
+await page.getByText("$540.00").waitFor();
+await page.getByRole("button", { name: "Call" }).waitFor();
+step("detail page shows her email, home size, extras and the total she saw");
+
+await page.getByRole("button", { name: "Add client" }).click();
+await page.waitForURL(/\/appointments\/new\?client=/);
+await page.getByText("Home · 4 bd / 3 ba").waitFor();
+step("Add client makes Lily a client with her home and opens the booking form");
+const tue = new Date();
+do tue.setDate(tue.getDate() + 1);
+while (tue.getDay() !== 3);
+await page.goto(page.url() + `&date=${tue.toISOString().slice(0, 10)}&time=13:00`);
+await page.selectOption('select[name="service"]', { label: "Deep Clean" });
+await page.getByRole("button", { name: "Book cleaning" }).click();
+await page.waitForURL(/\/appointments\/[0-9a-f-]+\?booked=1/);
+await page.goto(`${BASE}/abandoned?status=recovered`);
+await page.getByRole("link", { name: /Lily Left/ }).getByText("Recovered").waitFor();
+step("after booking her, Lily shows as Recovered");
+
+await page.goto(`${BASE}/abandoned`);
+await page.getByRole("link", { name: /Max Left/ }).click();
+await page.getByRole("button", { name: "Delete" }).click();
+await page.waitForURL(/\/abandoned$/);
+if (await page.getByRole("link", { name: /Max Left/ }).count()) fail("Max is still listed");
+step("Delete removes an abandoned booking from the list");
+
 await browser.close();
+await sql.end();
+if (errors.length) fail(`page errors: ${errors.join(" | ")}`);
 console.log("All good.");

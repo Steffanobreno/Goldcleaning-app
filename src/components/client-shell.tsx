@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { Phone } from "./icons";
 
-// The frame around every page clients see (booking, confirm, cancel): the Woofers navy
-// header and footer, like the website. `bare` drops both when the page sits inside the
+// The frame around every page clients see (booking, confirm, cancel): a white header with
+// the name and a Call button, and a navy footer, like the website. `bare` drops both when the page sits inside the
 // website in an iframe, which already has its own.
 
 export function ClientShell({
@@ -21,18 +21,14 @@ export function ClientShell({
   if (bare) return <main className="mx-auto w-full max-w-lg flex-1 px-3 py-4">{children}</main>;
   return (
     <>
-      <header className="sticky top-0 z-20 bg-navy">
+      <header className="sticky top-0 z-20 border-b border-line bg-surface">
         <div className="mx-auto flex max-w-lg items-center justify-between gap-3 px-4 py-3">
-          <a href={website ?? "#"} aria-label="Woofers Dog Spa home" className="shrink-0">
-            {/* eslint-disable-next-line @next/next/no-img-element -- small static logo */}
-            <img src="/logo-light.png" alt="Woofers Dog Spa" width={594} height={160} className="h-11 w-auto" />
+          <a href={website ?? "#"} className="font-serif text-sm font-bold tracking-[0.25em] text-navy">
+            GOLD CLEANING
           </a>
           {phone && (
-            <a
-              href={`sms:${phone}`}
-              className="rounded-xl bg-sky px-4 py-2.5 text-sm font-bold text-navy shadow-[0_0_18px_rgb(25_178_230/0.35)]"
-            >
-              Text us
+            <a href={`tel:${phone}`} className="flex items-center gap-1.5 text-sm font-semibold text-navy">
+              <Phone size={16} /> Call
             </a>
           )}
         </div>
@@ -40,9 +36,8 @@ export function ClientShell({
       <main className="mx-auto w-full max-w-lg flex-1 px-3 py-5">{children}</main>
       <footer className="bg-navy-deep text-white/75">
         <div className="mx-auto max-w-lg space-y-4 px-5 py-8 text-sm">
-          {/* eslint-disable-next-line @next/next/no-img-element -- small static logo */}
-          <img src="/logo-light.png" alt="" width={594} height={160} className="h-12 w-auto" />
-          <p>Premium mobile dog grooming delivered right to your doorstep in the Bay Area, CA.</p>
+          <p className="font-serif text-base font-bold tracking-[0.2em] text-gold">PENINSULA GOLD CLEANING</p>
+          <p>Home cleaning across the Peninsula and the South Bay.</p>
           {phone && (
             <a href={`tel:${phone}`} className="flex items-center gap-2 text-white">
               <Phone size={16} /> {phoneLabel}

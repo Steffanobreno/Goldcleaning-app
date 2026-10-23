@@ -3,19 +3,21 @@
 /* Design tokens. Components use these names only (bg-brand, text-muted, ...),
    never raw colors, so the palette can change in one place. */
 @theme {
-  /* Woofers: navy and sky blue from the logo and website. */
-  --color-bg: #f3f5f8;
+  /* Peninsula Gold Cleaning: navy and gold, as on the website. */
+  --color-bg: #f5f4f0;
   --color-surface: #ffffff;
-  --color-ink: #132039;
-  --color-muted: #5d6b80;
-  --color-line: #e1e6ee;
-  --color-brand: #0a84cc;
-  --color-brand-strong: #0769a6;
-  --color-brand-soft: #e6f4fc;
+  --color-ink: #0b1f3b;
+  --color-muted: #5b6474;
+  --color-line: #e4e2dc;
+  --color-brand: #0b1f3b;
+  --color-brand-strong: #06142a;
+  --color-brand-soft: #f3ead7;
   --color-on-brand: #ffffff;
-  --color-navy: #132039;
-  --color-navy-deep: #0e1726;
-  --color-sky: #19b2e6;
+  --color-navy: #0b1f3b;
+  --color-navy-deep: #06142a;
+  --color-gold: #c6a45e;
+  --color-gold-soft: #f3ead7;
+  --color-sky: #c6a45e;
   --color-danger: #b42318;
   --color-danger-soft: #fdecea;
   --color-success: #17803d;
@@ -23,9 +25,10 @@
   --color-warn: #9a5b00;
   --color-warn-soft: #fff4de;
 
+  --font-serif: Georgia, "Times New Roman", serif;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --radius-card: 1.25rem;
-  --shadow-card: 0 1px 2px rgb(19 32 57 / 0.04), 0 8px 24px rgb(19 32 57 / 0.06);
+  --shadow-card: 0 1px 2px rgb(11 31 59 / 0.04), 0 8px 24px rgb(11 31 59 / 0.06);
 
   --animate-sheet: sheet-up 0.22s ease-out;
   --animate-fade: fade-in 0.18s ease-out;
