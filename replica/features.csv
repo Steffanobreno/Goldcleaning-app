@@ -1,0 +1,100 @@
+feature,area,priority,original,clone,notes
+Login do dono (e-mail/senha ou código),auth,must,yes,yes,"S01; clone: e-mail + senha, sessão de 60 dias"
+Cadastro do negócio (nome logo fuso moeda),settings,must,yes,partial,"S17; clone: nome, telefone, link; falta logo e fuso na tela"
+Horário de trabalho por dia da semana,settings,must,yes,yes,S17 fonte 14
+Catálogo de serviços com duração e preço,services,must,yes,yes,S18; clone: editável em Settings
+Add-ons de serviço,services,must,yes,yes,S18 S34
+Preço/duração por porte raça ou peso,services,should,yes,no,fonte 4; regras exatas são guess
+Calendário dia/semana/lista,calendar,must,yes,partial,S04; clone: semana em lista + rota do dia; sem grade por hora
+Visão mês no calendário,calendar,should,yes,no,S04
+Arrastar e soltar para remarcar,calendar,should,yes,no,fonte 41
+Cores por status ou serviço,calendar,should,yes,no,fonte 41
+Criar agendamento manual (cliente pet serviço horário),appointments,must,yes,yes,S05 F04
+Vários pets no mesmo agendamento,appointments,must,yes,yes,S05; comum em grooming móvel
+Status do agendamento (confirmado em andamento concluído cancelado no-show),appointments,must,yes,yes,S06
+Detectar conflito e horário fora do expediente,appointments,must,yes,yes,fonte 14; clone: conflito bloqueado no banco; fora do horário pede confirmação; clone: sobreposição só avisa (dono ajusta de propósito); online nunca sobrepõe
+Agendamento recorrente com prévia e conflitos,appointments,skip,yes,skip,S07 F05; clone: dono prefere o lembrete de reagendar
+Editar só este / este e próximos / série toda,appointments,should,yes,no,fonte 14
+Agendar de novo a partir de um atendimento,appointments,should,yes,yes,F10 fonte 15; clone: usa a frequência do pet
+Notas do agendamento,appointments,must,yes,yes,S06
+Lista de clientes com busca,clients,must,yes,yes,"S09; clone: nome, telefone ou pet"
+Filtro inteligente de clientes/pets,clients,could,yes,no,fonte 30
+Perfil do cliente (contato endereço histórico),clients,must,yes,yes,S10
+Notas do cliente com data e autor,clients,should,yes,yes,fonte 29
+Perfil do pet (raça idade peso pelagem comportamento vet),pets,must,yes,yes,S11
+Códigos de pet (etiquetas ≤8 caracteres) nos cards,pets,should,yes,no,fonte 28
+Vacinas com validade e anexo,pets,skip,yes,skip,S12 fonte 27; clone: validade e alerta; sem anexo de foto/PDF; clone: dono: dispensável
+Alerta de vacina vencida no card do agendamento,pets,skip,yes,skip,fonte 27; clone: no agendamento; clone: dono: dispensável
+Importar clientes e pets de CSV,clients,must,no,yes,"não é do original; necessário para sair do MoeGo; clone: pendente: o dono ainda vai exportar do app antigo; clone: Settings → Import; 389 de 390 do export real, sem duplicar"
+Mapa do dia com paradas numeradas,mobile grooming,must,yes,partial,S02 F06; clone: lista numerada + mapa embutido quando há chave do Google
+Tempo e distância entre paradas,mobile grooming,skip,yes,skip,fonte 12; clone: dono: o tempo do serviço já inclui o deslocamento
+Botão Direções (abre o Google Maps),mobile grooming,must,yes,yes,fonte 10; o usuário usa Google Maps; clone: parada a parada e rota inteira
+"Enviar SMS ""a caminho"" com ETA",mobile grooming,must,yes,yes,fonte 10; clone: botão abre o Mensagens com o texto pronto
+Compartilhar localização ao vivo (En Route),mobile grooming,could,yes,no,fonte 10; só útil com equipe
+Local inicial/final da van,mobile grooming,must,yes,partial,S19 fonte 8; clone: ZIP da van para a área atendida
+Limite de tempo/distância de direção ao sugerir horários,mobile grooming,must,yes,partial,Smart Scheduling fonte 8; clone: 25 mi em linha reta entre ZIPs; sem tempo de direção
+Áreas de atendimento por dia da semana,mobile grooming,should,yes,no,fonte 7 8
+Bloquear endereço fora da área no booking online,mobile grooming,must,yes,yes,fonte 7; clone: raio a partir do ZIP da van
+Sugerir melhor ordem de rota do dia,mobile grooming,should,yes,no,fonte 40 (Growth)
+Regras separadas por van/funcionário,mobile grooming,could,yes,no,fonte 3; hoje há 1 van
+Página pública de agendamento do negócio,online booking,must,yes,yes,S30; clone: /book; pode ir dentro do site por iframe
+Login do cliente por código SMS,online booking,skip,yes,partial,"S31 fonte 16; clone: sem SMS pago: cliente pede sem login, dono aprova; clone: login pelo telefone sem código: reconhece pets e endereço; mostra só nome, pets e cidade; dono aprova"
+Fluxo de cliente novo (dados + pet),online booking,must,yes,yes,S32 S33; clone: cliente casado pelo telefone
+Escolher serviço e add-ons online,online booking,must,yes,yes,S34
+Slots disponíveis filtrados pela rota,online booking,must,yes,yes,S35; clone: horário + folga de direção + 25 mi entre as paradas do dia (centro do ZIP)
+Limite de pets por slot/dia,online booking,should,yes,no,fonte 4
+Limite de peso para agendar online,online booking,could,yes,no,fonte 19
+Peso/pelagem só leitura para clientes existentes,online booking,could,yes,no,fonte 19
+Perguntas personalizadas no booking,online booking,should,yes,no,fonte 19
+Contrato com assinatura online,online booking,must,yes,yes,S36; clone: nome digitado; no booking e no link de confirmação; 1x por ano
+Pedido online precisa de aprovação do dono,online booking,must,yes,yes,S08 F03; clone: tela Requests
+Fila de espera,online booking,should,yes,no,S08 fonte 37
+Portal: ver/cancelar/remarcar agendamentos,client portal,must,yes,partial,"S39; clone: link do cliente: ver, confirmar, cancelar; remarcar = novo pedido"
+Portal: atualizar dados pets e vacinas,client portal,should,yes,no,S40
+Intake form público para leads,client portal,could,yes,no,S41 S21
+Consentimento de SMS (TCPA) e marketing,compliance,must,yes,partial,fonte 18; exigido nos EUA para SMS; clone: registrado no cliente; SMS ainda não enviado
+Lembrete automático (X dias antes às HH:MM),messaging,must,yes,yes,F07 fonte 23; clone: e-mail + SMS pelo iPhone
+Confirmar/cancelar respondendo S ou N,messaging,must,yes,partial,fonte 24; clone: pelo link no texto (respostas por texto vão ao celular do dono)
+Mensagens automáticas (agendado confirmado cancelado agradecimento),messaging,must,yes,yes,fonte 23
+Editor de templates com variáveis,messaging,should,yes,yes,S20
+Inbox de SMS bidirecional,messaging,skip,yes,skip,S15; SMS é o único canal; clone: as respostas chegam no Mensagens do iPhone
+Envio pelo WhatsApp,messaging,skip,no,skip,na Califórnia o contato é só por SMS
+Opt-out por cliente (STOP/HELP),messaging,must,yes,partial,fonte 23; obrigatório por regra das operadoras dos EUA; clone: dono desmarca o consentimento no cliente
+Lembrete por ligação automática (1 confirma 2 cancela),messaging,skip,yes,skip,pouco usado no BR; caro
+Checkout com fatura (estimativa aberta fechada),payments,must,yes,yes,S13 fonte 32
+Gorjeta no checkout,payments,should,yes,yes,fonte 33; clone: atalhos 15/18/20/25%
+Registrar pagamento manual (Cash Zelle cheque Venmo),payments,must,yes,yes,"S13; os métodos usados na Califórnia; clone: inclui Bitcoin, conforme o contrato"
+Cobrança com cartão integrada,payments,could,yes,no,não usado hoje; Stripe se precisar
+Cartão salvo,payments,could,yes,no,fonte 20
+Sinal/pré-pagamento no booking (retido e capturado ao aceitar),payments,could,yes,no,fonte 21; exige cartão
+Pagamento parcial com saldo pendente,payments,could,yes,yes,fonte 32
+Pacotes pré-pagos com créditos,payments,could,yes,no,fonte 34
+Descontos,payments,should,yes,yes,fonte 35
+Pagamento em lote de várias faturas,payments,could,yes,no,fonte 36
+Relatório de grooming com fotos antes/depois,reports to client,must,yes,partial,S14 F09; clone: foto do pet no cadastro (cliente ou dono); sem relatório por visita
+Link público do relatório com botão reagendar,reports to client,should,yes,no,S42
+Dashboard de KPIs (faturamento atendimentos ticket),insights,should,yes,no,S16
+Relatório de gorjetas e comissões,insights,could,yes,no,fonte 39; 1 pessoa hoje
+Notificação de novo pedido online no celular,notifications,must,yes,partial,F03; clone: e-mail para o dono + aviso no Today
+App instalável no celular do dono,platform,must,yes,partial,PWA ou app nativo: decidir no /replica-architect; clone: manifest e ícone; sem modo offline
+Pedido de avaliação (Google) após atendimento,marketing,could,yes,partial,fonte 40 (Growth); clone: link do Google após checkout; sem fluxo de nota
+Pagamentos próprios MoeGo Pay e terminais,payments,skip,yes,skip,infraestrutura financeira do MoeGo; usar provedor
+Número de telefone branded,messaging,skip,yes,skip,serviço de telecom; usar provedor
+App do cliente nas lojas,client portal,skip,yes,skip,o cliente usa a web
+Hotel (boarding),other verticals,skip,yes,skip,não é grooming móvel
+Creche (daycare) e report cards de creche,other verticals,skip,yes,skip,não é grooming móvel
+Adestramento / turmas,other verticals,skip,yes,skip,não é grooming móvel
+Multi-unidade,platform,skip,yes,skip,um negócio só
+Varejo / produtos e estoque,payments,skip,yes,skip,fora do grooming móvel; pode virar could depois
+Gestão avançada de equipe e permissões,team,skip,yes,skip,1 pessoa hoje
+Gerente de conta dedicado,support,skip,yes,skip,serviço humano do MoeGo
+Campanhas de marketing em massa,marketing,skip,yes,skip,pode virar could depois
+Dados dos clientes guardados no MoeGo,data,skip,yes,skip,exportar pelo próprio MoeGo e importar; não extrair por scraping
+Lembrete para reagendar pela frequência do pet,messaging,should,yes,yes,print do dono; ex. 42 dias
+Pedido de avaliação por SMS após checkout com resposta por nota,marketing,should,yes,partial,print do dono; nota 5 → links Yelp/Facebook/Google; <5 → desculpas; clone: link do Google após checkout; sem fluxo de nota
+Aviso de agendamento online abandonado,online booking,could,yes,no,print do dono (18 abandonados)
+Aviso de agendamentos não pagos,payments,should,yes,no,print do dono
+QR code do link de agendamento,online booking,could,yes,no,print do dono
+Sincronizar com Google Calendar,integrations,could,yes,partial,print do dono; clone: assinatura ICS (atualiza a cada poucas horas)
+Trava de segurança (PIN) no app,platform,could,yes,no,print do dono
+Serviços por tamanho do pet (altura),services,must,yes,yes,Small ≤12 Medium 12-16 Large 16-20 XL 20+

@@ -1,0 +1,123 @@
+@import "tailwindcss";
+
+/* Design tokens. Components use these names only (bg-brand, text-muted, ...),
+   never raw colors, so the palette can change in one place. */
+@theme {
+  /* Woofers: navy and sky blue from the logo and website. */
+  --color-bg: #f3f5f8;
+  --color-surface: #ffffff;
+  --color-ink: #132039;
+  --color-muted: #5d6b80;
+  --color-line: #e1e6ee;
+  --color-brand: #0a84cc;
+  --color-brand-strong: #0769a6;
+  --color-brand-soft: #e6f4fc;
+  --color-on-brand: #ffffff;
+  --color-navy: #132039;
+  --color-navy-deep: #0e1726;
+  --color-sky: #19b2e6;
+  --color-danger: #b42318;
+  --color-danger-soft: #fdecea;
+  --color-success: #17803d;
+  --color-success-soft: #e7f6ec;
+  --color-warn: #9a5b00;
+  --color-warn-soft: #fff4de;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --radius-card: 1.25rem;
+  --shadow-card: 0 1px 2px rgb(19 32 57 / 0.04), 0 8px 24px rgb(19 32 57 / 0.06);
+
+  --animate-sheet: sheet-up 0.22s ease-out;
+  --animate-fade: fade-in 0.18s ease-out;
+  @keyframes sheet-up {
+    from { transform: translateY(24px); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Visible focus for keyboard users everywhere. */
+:focus-visible {
+  outline: 3px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* iOS zooms into inputs smaller than 16px; keep form text at 16px. */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* Owner app building blocks. */
+@utility card {
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+@utility section-label {
+  padding-inline: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+@utility stepper {
+  display: flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 2px solid var(--color-brand);
+  color: var(--color-brand);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Numbered pins on the route map (Today). */
+.route-pin {
+  width: 32px;
+  height: 32px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: var(--color-navy);
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.route-pin span {
+  transform: rotate(45deg);
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+}
+.route-pin-done {
+  background: var(--color-success);
+}
+.route-pop {
+  color: inherit;
+  text-decoration: none;
+}

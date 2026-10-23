@@ -1,0 +1,8 @@
+# Netlify (free plan) builds and runs the Next.js app; it detects Next.js on its own.
+# Each production build first brings the database up to date (tables, then the business
+# data on a fresh database). Both steps are safe to repeat.
+[build]
+  command = "npm run db:migrate && npm run db:seed && npm run build"
+
+[build.environment]
+  NODE_VERSION = "22"
