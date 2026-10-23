@@ -217,19 +217,3 @@ export async function sendTestEmailAction(): Promise<FormState & { sentTo?: stri
   return { saved: true, sentTo: to };
 }
 
-/**
- * Puts a test text in the iPhone outbox. Run the Shortcut (or wait for its next run) and
- * the text goes out from the owner's own number: proof the whole chain works.
- */
-export async function queueTestTextAction(_: FormState, form: FormData): Promise<FormState> {
-  const staff = await requireStaff();
-  const phone = normalizePhone(form.get("phone"));
-  if (!phone) return { error: "Enter a 10-digit mobile number." };
-  const [b] = await sql`select name from businesses where id = ${staff.businessId}`;
-  await sql`
-    insert into messages (business_id, direction, channel, to_phone, body, template_trigger, status)
-    values (${staff.businessId}, 'out', 'sms', ${phone},
-            ${`Test from ${b.name}: if you got this, texts from the app work. 🐾`}, 'test', 'queued')`;
-  revalidatePath("/settings/messages");
-  return { saved: true };
-}

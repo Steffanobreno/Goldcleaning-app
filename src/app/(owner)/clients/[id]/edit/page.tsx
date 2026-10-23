@@ -22,7 +22,7 @@ export default async function EditClientPage({ params }: PageProps<"/clients/[id
           <ClientForm
             action={updateClientAction.bind(null, id)}
             submitLabel="Save changes"
-            initial={{ ...client, phone: phoneLabel(client.phone), sms_consent: client.sms_consent_at != null }}
+            initial={{ ...client, phone: phoneLabel(client.phone) }}
           />
         </Card>
       </Page>

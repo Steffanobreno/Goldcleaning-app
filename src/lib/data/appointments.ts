@@ -110,6 +110,7 @@ export type AppointmentDetail = {
     first_name: string;
     last_name: string;
     phone: string;
+    email: string | null;
     city: string | null;
     state: string | null;
     access_notes: string | null;
@@ -136,7 +137,7 @@ export async function getAppointment(staff: StaffContext, id: string) {
                                                   'qty', l.qty, 'price_cents', l.price_cents) order by l.created_at)
                 from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
                 where ah.appointment_id = a.id), '[]'::json) as lines,
-      json_build_object('id', c.id, 'first_name', c.first_name, 'last_name', c.last_name, 'phone', c.phone,
+      json_build_object('id', c.id, 'first_name', c.first_name, 'last_name', c.last_name, 'phone', c.phone, 'email', c.email,
                         'city', c.city, 'state', c.state, 'access_notes', c.access_notes,
                         'sms_opted_out_at', c.sms_opted_out_at) as client
     from appointments a join clients c on c.id = a.client_id

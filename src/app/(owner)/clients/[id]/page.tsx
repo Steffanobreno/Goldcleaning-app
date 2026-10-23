@@ -6,7 +6,7 @@ import { clientHistory, clientSummary, fullAddress, fullName, getClient, listCli
 import { accessLabel, homeSizeLabel, listHomes } from "@/lib/data/homes";
 import { FREQUENCY_LABEL } from "@/lib/pricing";
 import { AddressLink, PhoneLink } from "@/components/contact-sheet";
-import { Chat, Phone } from "@/components/icons";
+import { Chat, Mail, Phone } from "@/components/icons";
 import { methodLabel } from "@/lib/payment-methods";
 import { dayLabel, isUuid, money, phoneLabel, timeLabel } from "@/lib/format";
 import { Button, ButtonLink, Card, Empty, Notice, Page, PageHeader, StatusBadge, Textarea } from "@/components/ui";
@@ -56,6 +56,7 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
               <p className="truncate text-xl font-bold">{fullName(client)}</p>
               {client.archived_at && <span className="text-xs font-bold uppercase text-muted">Inactive</span>}
             </div>
+            {client.email && <a href={`mailto:${client.email}`} aria-label="Email" className="rounded-full p-2 text-brand hover:bg-brand-soft"><Mail size={24} /></a>}
             <a href={`sms:${client.phone}`} aria-label="Text" className="rounded-full p-2 text-brand hover:bg-brand-soft"><Chat size={24} /></a>
             <a href={`tel:${client.phone}`} aria-label="Call" className="rounded-full p-2 text-brand hover:bg-brand-soft"><Phone size={24} /></a>
           </div>
@@ -140,8 +141,8 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
           {client.imported_last_service_at && history.length === 0 && (
             <p className="text-sm text-muted">Last visit in the old app: {dayLabel(client.imported_last_service_at, tz)}</p>
           )}
-          {!client.sms_consent_at && <Notice kind="warn">No text consent recorded. Automatic texts will not be sent.</Notice>}
-          {client.sms_opted_out_at && <Notice kind="warn">This client replied STOP. Texts are blocked.</Notice>}
+          {!client.email && <Notice kind="warn">No email on file: this client gets no confirmations or reminders.</Notice>}
+          {client.sms_opted_out_at && <Notice kind="warn">Messages are blocked: this client gets no automatic emails.</Notice>}
         </Card>
 
         <section className="space-y-2">
@@ -236,7 +237,7 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
           <h2 className="section-label">Business control</h2>
           <div className="card divide-y divide-line">
             <Toggle clientId={id} control="inactive" on={!!client.archived_at} label="Inactive customer" hint="Hidden from the client list" />
-            <Toggle clientId={id} control="block_messages" on={!!client.sms_opted_out_at} label="Block messages" hint="No automatic texts" />
+            <Toggle clientId={id} control="block_messages" on={!!client.sms_opted_out_at} label="Block messages" hint="No automatic emails" />
             <Toggle clientId={id} control="block_online" on={client.online_booking_blocked} label="Block online booking" hint="They're asked to text you instead" />
             <Toggle clientId={id} control="no_marketing" on={!!client.email_unsubscribed_at} label="No marketing emails" hint="Left out of email campaigns (they can unsubscribe themselves too)" />
           </div>

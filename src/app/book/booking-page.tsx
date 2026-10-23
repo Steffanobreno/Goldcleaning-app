@@ -30,7 +30,9 @@ function Section({ n, title, children, id }: { n: number; title: string; childre
   );
 }
 
-export function BookingPage({ initialCatalog, today, businessPhone }: { initialCatalog: Catalog; today: string; businessPhone: string }) {
+export function BookingPage({ initialCatalog, today, businessPhone, initialPhone = "" }: {
+  initialCatalog: Catalog; today: string; businessPhone: string; initialPhone?: string;
+}) {
   const [catalog, setCatalog] = useState(initialCatalog);
   const services = catalog.services;
   const [serviceId, setServiceId] = useState(services.find((s) => s.pricing === "rate")?.id ?? "");
@@ -40,7 +42,7 @@ export function BookingPage({ initialCatalog, today, businessPhone }: { initialC
   const freq = offered.includes(frequency) ? frequency : (offered[0] ?? "one_time");
   const [home, setHome] = useState({ bedrooms: 1, fullBaths: 1, halfBaths: 0 });
   const [qty, setQty] = useState<Record<string, number>>({});
-  const [contact, setContact] = useState<Contact>({ firstName: "", lastName: "", email: "", phone: "" });
+  const [contact, setContact] = useState<Contact>({ firstName: "", lastName: "", email: "", phone: initialPhone });
   const [contactDone, setContactDone] = useState(false);
   const [days, setDays] = useState<DaySlots[] | null>(null);
   const [slotsError, setSlotsError] = useState<string | null>(null);

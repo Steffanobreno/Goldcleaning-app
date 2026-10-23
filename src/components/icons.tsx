@@ -67,6 +67,12 @@ export const Van = (p: IconProps) => (
 );
 export const User = (p: IconProps) => <Icon {...p}><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" /></Icon>;
 
+export const Mail = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="m3.5 6.5 8.5 6.5 8.5-6.5" />
+  </Icon>
+);
 export const House = (p: IconProps) => (
   <Icon {...p}>
     <path d="M3 10.5 12 3l9 7.5" />

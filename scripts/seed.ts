@@ -85,7 +85,7 @@ const extras: [string, number, boolean, string][] = [
 ];
 
 // Variables in {braces} are filled in when sending (src/lib/messaging.ts).
-// {link} is the client's page to see, confirm or cancel the visit (no login needed).
+// {appointment_url} is the client's page to see, confirm or cancel the visit (no login needed).
 const sign = "\n\nPeninsula Gold Cleaning · (650) 434-2080";
 const templates = [
   {
@@ -96,12 +96,12 @@ const templates = [
   {
     trigger: "request_accepted",
     email_subject: "Your cleaning is confirmed",
-    body: `Hi {client}, your {service} is confirmed for {date} at {time}. See or change it here: {link}${sign}`,
+    body: `Hi {client}, your {service} is confirmed for {date} at {time}. See or change it here: {appointment_url}${sign}`,
   },
   {
     trigger: "booked",
     email_subject: "Your cleaning with {business}",
-    body: `Hi {client}, your {service} is booked for {date} at {time}. See or change it here: {link}${sign}`,
+    body: `Hi {client}, your {service} is booked for {date} at {time}. See or change it here: {appointment_url}${sign}`,
   },
   {
     trigger: "request_declined",
@@ -113,7 +113,7 @@ const templates = [
     offset_days: 1,
     send_at_time: "10:00",
     email_subject: "Reminder: your cleaning tomorrow",
-    body: `Hi {client}, a reminder that your {service} is tomorrow, {date} at {time}. Need to change something? {link}${sign}`,
+    body: `Hi {client}, a reminder that your {service} is tomorrow, {date} at {time}. Need to change something? {appointment_url}${sign}`,
   },
   {
     trigger: "confirmed",

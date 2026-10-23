@@ -30,8 +30,6 @@ function readClient(form: FormData) {
       state: text(form, "state") ?? "CA",
       zip: text(form, "zip"),
       access_notes: text(form, "access_notes"),
-      // The client agreed to texts when the owner ticks this (TCPA).
-      sms_consent: form.get("sms_consent") === "on",
     },
   } as const;
 }
@@ -51,10 +49,10 @@ export async function createClientAction(_: FormState, form: FormData): Promise<
   try {
     const [row] = await sql`
       insert into clients (business_id, first_name, last_name, phone, email, address_line, city, state, zip,
-                           lat, lng, access_notes, sms_consent_at, source)
+                           lat, lng, access_notes, source)
       values (${staff.businessId}, ${v.first_name}, ${v.last_name}, ${v.phone}, ${v.email}, ${v.address_line},
               ${v.city ?? geo?.city ?? null}, ${v.state}, ${v.zip ?? geo?.zip ?? null}, ${geo?.lat ?? null},
-              ${geo?.lng ?? null}, ${v.access_notes}, ${v.sms_consent ? new Date() : null}, 'manual')
+              ${geo?.lng ?? null}, ${v.access_notes}, 'manual')
       returning id`;
     id = row.id;
   } catch (e) {
@@ -75,8 +73,7 @@ export async function updateClientAction(clientId: string, _: FormState, form: F
       update clients set first_name = ${v.first_name}, last_name = ${v.last_name}, phone = ${v.phone},
         email = ${v.email}, address_line = ${v.address_line}, city = ${v.city ?? geo?.city ?? null},
         state = ${v.state}, zip = ${v.zip ?? geo?.zip ?? null}, lat = ${geo?.lat ?? null}, lng = ${geo?.lng ?? null},
-        access_notes = ${v.access_notes},
-        sms_consent_at = case when ${v.sms_consent} then coalesce(sms_consent_at, now()) else null end
+        access_notes = ${v.access_notes}
       where id = ${clientId} and business_id = ${staff.businessId}
       returning id`;
     if (rows.length === 0) return { error: "Client not found." };

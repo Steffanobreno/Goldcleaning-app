@@ -63,6 +63,17 @@ await page.getByText("$540.00").waitFor();
 await page.getByRole("button", { name: "Call" }).waitFor();
 step("detail page shows her email, home size, extras and the total she saw");
 
+await page.getByRole("button", { name: "Email" }).click();
+await page.getByText("Email sent to lily@example.com.").waitFor();
+const [mail] = await sql`select body from messages where template_trigger = 'abandoned_booking' and to_email = 'lily@example.com'`;
+if (!mail?.body.includes("/book?phone=6505550166")) fail(`finish email wrong: ${mail?.body}`);
+await page.getByRole("button", { name: "Email" }).click();
+await page.getByText("They already got the email at lily@example.com.").waitFor();
+step("Email sends the 'finish booking' email once, with a link that brings back her phone");
+
+await page.goto(`${BASE}/book?phone=6505550166`);
+if ((await page.getByLabel("Mobile phone").inputValue()) !== "6505550166") fail("the finish link should fill in the phone");
+await page.goBack();
 await page.getByRole("button", { name: "Add client" }).click();
 await page.waitForURL(/\/appointments\/new\?client=/);
 await page.getByText("Home · 4 bd / 3 ba").waitFor();

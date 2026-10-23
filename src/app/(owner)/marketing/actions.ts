@@ -70,7 +70,7 @@ export async function saveFiltersAction(id: string, raw: Filters) {
 export async function sendTestAction(id: string, _: CampaignState, form: FormData): Promise<CampaignState> {
   const { staff, c } = await own(id);
   if (!c) return { error: "Campaign not found." };
-  if (!emailConfigured()) return { error: "Email isn't set up yet (Settings → Texts and email)." };
+  if (!emailConfigured()) return { error: "Email isn't set up yet (Settings → Email messages)." };
   const to = String(form.get("to") ?? "").trim();
   if (!/^\S+@\S+\.\S+$/.test(to)) return { error: "Type the email to send the test to." };
   const [b] = await sql`select name, phone, mailing_address, website_url from businesses where id = ${staff.businessId}`;
@@ -92,7 +92,7 @@ async function readyToSend(id: string) {
   if (c.status !== "draft" && c.status !== "scheduled") return { error: "This campaign was already sent." };
   if (!c.subject.trim()) return { error: "Write a subject first (step 1)." };
   if (!c.body.trim()) return { error: "Write the message first (step 1)." };
-  if (!emailConfigured()) return { error: "Email isn't set up yet (Settings → Texts and email)." };
+  if (!emailConfigured()) return { error: "Email isn't set up yet (Settings → Email messages)." };
   const [b] = await sql`select mailing_address from businesses where id = ${staff.businessId}`;
   if (!b.mailing_address) return { error: "Add your mailing address on the Marketing page first (US law asks for it in marketing emails)." };
   const people = await audience(staff.businessId, cleanFilters(c.filters));

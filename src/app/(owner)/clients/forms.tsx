@@ -17,7 +17,6 @@ export type ClientValues = {
   state: string | null;
   zip: string | null;
   access_notes: string | null;
-  sms_consent: boolean;
 };
 
 export function ClientForm({ action, initial, submitLabel }: { action: Action; initial?: ClientValues; submitLabel: string }) {
@@ -36,11 +35,7 @@ export function ClientForm({ action, initial, submitLabel }: { action: Action; i
       <Field label="Mobile phone" hint="Amanda calls or texts from Google Voice.">
         <Input name="phone" type="tel" inputMode="tel" defaultValue={initial?.phone} required placeholder="(650) 555-0123" />
       </Field>
-      <label className="flex items-start gap-3 rounded-xl border border-line bg-surface p-3 text-sm">
-        <input type="checkbox" name="sms_consent" defaultChecked={initial?.sms_consent ?? true} className="mt-1 h-4 w-4" />
-        <span>Client agreed to receive text messages about their appointments.</span>
-      </label>
-      <Field label="Email" hint="Confirmations and reminders go here.">
+      <Field label="Email" hint="Confirmations and reminders go here (the app sends email only).">
         <Input name="email" type="email" defaultValue={initial?.email ?? ""} />
       </Field>
       <Field label="Street address">

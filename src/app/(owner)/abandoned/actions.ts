@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireStaff } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { getDraft } from "@/lib/data/abandoned";
+import { emailAbandonedNow } from "@/lib/messaging";
 
 /** Hides an abandoned booking from the list (not interested, a test, a duplicate...). */
 export async function deleteDraftAction(id: string) {
@@ -19,6 +20,15 @@ export async function markContactedAction(id: string) {
   const staff = await requireStaff();
   await sql`update booking_drafts set contacted_at = now() where id = ${id} and business_id = ${staff.businessId}`;
   revalidatePath("/abandoned");
+}
+
+/** Sends the "finish booking" email now. Returns what happened, for the button. */
+export async function emailDraftAction(id: string) {
+  const staff = await requireStaff();
+  const result = await emailAbandonedNow(staff.businessId, id);
+  revalidatePath("/abandoned");
+  revalidatePath(`/abandoned/${id}`);
+  return result;
 }
 
 /** Makes a client (with their home) from what they typed, then opens the booking form. */

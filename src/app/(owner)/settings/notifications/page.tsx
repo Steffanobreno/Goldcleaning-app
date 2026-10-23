@@ -38,7 +38,7 @@ export default async function NotificationsPage() {
           {b.email && emailConfigured() ? (
             <Notice kind="success">The same alerts also go to {b.email}.</Notice>
           ) : (
-            <Notice kind="warn">Add your email in Texts and email to get these alerts by email too.</Notice>
+            <Notice kind="warn">Add your email in Email messages to get these alerts by email too.</Notice>
           )}
         </Card>
       </Page>

@@ -7,11 +7,12 @@ import { clientEvent } from "./client-calendar";
 import { lastSentByTemplate, processCampaigns } from "./data/marketing";
 import { nextDate, suggestions } from "./marketing-templates";
 import { addDaysYmd, dayRangeUtc, hm, money, phoneLabel, todayYmd, ymd } from "./format";
+import { renderTemplate } from "./messaging-render";
 
-// Every client message goes through here. A message is a row in `messages`:
-// - email rows are sent right away from the business Gmail;
-// - SMS rows wait in the outbox until the owner's iPhone Shortcut collects and sends them.
-// `dedupe_key` is unique, so running the same step twice never sends twice.
+// Every client message goes through here, by email only (calls and texts are made by hand from
+// Google Voice). A message is a row in `messages`, sent right away from the business Gmail;
+// `dedupe_key` is unique, so running the same step twice never sends twice. A client without
+// an email, or with messages blocked on their profile, gets nothing.
 //
 // "Automatic messages" (auto_messages_enabled) starts off, so clients don't get doubles while
 // the old app still sends its own. Visits booked on the online booking page are the
@@ -25,7 +26,6 @@ export type Trigger =
   | "reminder"
   | "confirmed"
   | "cancelled"
-  | "on_my_way"
   | "rebook"
   | "review_request"
   | "abandoned_booking"
@@ -43,9 +43,7 @@ export type Template = {
 
 const appUrl = () => (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
 
-export function render(text: string, vars: Record<string, string | number | null | undefined>) {
-  return text.replace(/\{(\w+)\}/g, (all, key) => (vars[key] != null ? String(vars[key]) : all));
-}
+export const render = renderTemplate;
 
 async function template(businessId: string, trigger: Trigger) {
   const [t] = await sql<Template[]>`
@@ -71,8 +69,9 @@ type ApptContext = {
   first_name: string;
   phone: string;
   email: string | null;
-  sms_ok: boolean;
-  service: string | null; // "Regular Clean · 3 bd / 2 ba"
+  can_email: boolean; // has an email and messages aren't blocked on their profile
+  service: string | null; // "Regular Clean"
+  home: string | null; // "3 bd / 2 ba"
   total_cents: number;
   source: string;
 };
@@ -87,11 +86,12 @@ async function appointmentContext(appointmentId: string) {
     select a.id, a.business_id, a.start_at, a.status, a.public_token, a.source,
            b.name as business_name, b.phone as business_phone, b.timezone, b.website_url, b.review_url,
            c.id as client_id, c.first_name, c.phone, c.email,
-           (c.sms_consent_at is not null and c.sms_opted_out_at is null) as sms_ok,
-           (select concat_ws(' · ', sv.name,
-                     case when h.bedrooms = 0 then 'Studio' else h.bedrooms || ' bd' end || ' / ' || h.full_baths || ' ba')
+           (c.email is not null and c.sms_opted_out_at is null) as can_email,
+           sv.name as service,
+           (select case when h.bedrooms = 0 then 'Studio' else h.bedrooms || ' bd' end || ' / ' || h.full_baths || ' ba'
+                   || case when h.half_baths > 0 then ' / ' || h.half_baths || ' half' else '' end
             from appointment_homes ah join homes h on h.id = ah.home_id
-            where ah.appointment_id = a.id order by ah.created_at limit 1) as service,
+            where ah.appointment_id = a.id order by ah.created_at limit 1) as home,
            coalesce((select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
                      where ah.appointment_id = a.id), 0)::int as total_cents
     from appointments a
@@ -111,37 +111,27 @@ function varsFor(c: ApptContext, extra: Record<string, string | number> = {}) {
     business_phone: phoneLabel(c.business_phone),
     client: c.first_name,
     service: c.service ?? "cleaning",
+    home: c.home ?? "",
     total: money(c.total_cents),
     date: formatInTimeZone(c.start_at, c.timezone, "EEE, MMM d"),
     time: formatInTimeZone(c.start_at, c.timezone, "h:mm a"),
-    link: c.public_token ? appointmentLink(c.public_token) : bookingUrl(c),
+    appointment_url: c.public_token ? appointmentLink(c.public_token) : bookingUrl(c),
     booking_url: bookingUrl(c),
     review_url: c.review_url ?? "",
     ...extra,
   };
 }
 
-/** Creates the SMS and email rows for one message (each only if the client can receive it). */
+/** Creates the email row for one message, when the client can get one. */
 async function enqueue(c: ApptContext, trigger: Trigger, t: Template, dedupe: string, extra?: Record<string, string | number>) {
+  if (!c.can_email) return;
   const vars = varsFor(c, extra);
-  const body = render(t.body, vars);
-  if (c.sms_ok) {
-    await sql`
-      insert into messages (business_id, client_id, appointment_id, direction, channel, to_phone, body,
-                            template_trigger, status, dedupe_key)
-      values (${c.business_id}, ${c.client_id}, ${c.id}, 'out', 'sms', ${c.phone}, ${body}, ${trigger}, 'queued',
-              ${`${dedupe}:sms`})
-      on conflict (dedupe_key) do nothing`;
-  }
-  if (c.email) {
-    const subject = render(t.email_subject ?? `${c.business_name}`, vars);
-    await sql`
-      insert into messages (business_id, client_id, appointment_id, direction, channel, to_email, subject, body,
-                            template_trigger, status, dedupe_key)
-      values (${c.business_id}, ${c.client_id}, ${c.id}, 'out', 'email', ${c.email}, ${subject}, ${body}, ${trigger},
-              'queued', ${`${dedupe}:email`})
-      on conflict (dedupe_key) do nothing`;
-  }
+  await sql`
+    insert into messages (business_id, client_id, appointment_id, direction, channel, to_email, subject, body,
+                          template_trigger, status, dedupe_key)
+    values (${c.business_id}, ${c.client_id}, ${c.id}, 'out', 'email', ${c.email}, ${render(t.email_subject ?? c.business_name, vars)},
+            ${render(t.body, vars)}, ${trigger}, 'queued', ${`${dedupe}:email`})
+    on conflict (dedupe_key) do nothing`;
 }
 
 /**
@@ -188,14 +178,6 @@ export async function notifyQuote(quoteId: string) {
       `See it and the photos: ${appUrl}/requests?tab=quotes`,
     "/requests?tab=quotes",
   );
-}
-
-/** The text the owner sends by hand from the phone (e.g. "on my way"), filled in. */
-export async function smsTextFor(appointmentId: string, trigger: Trigger) {
-  const c = await appointmentContext(appointmentId);
-  if (!c) return null;
-  const t = await template(c.business_id, trigger);
-  return t ? render(t.body, varsFor(c)) : null;
 }
 
 /** Works out which scheduled messages are due now and queues them. Safe to run often. */
@@ -346,21 +328,6 @@ export async function sendQueuedEmails(businessId: string) {
   }
 }
 
-/**
- * Hands the waiting SMS to the iPhone Shortcut, which sends them from the owner's number.
- * Texts older than 36 hours are dropped instead (a late reminder is worse than none).
- */
-export async function takeSmsOutbox(businessId: string) {
-  await sql`update messages set status = 'skipped', error = 'too old to send'
-            where business_id = ${businessId} and channel = 'sms' and status = 'queued'
-              and created_at < now() - interval '36 hours'`;
-  return sql<{ id: string; phone: string; body: string }[]>`
-    update messages set status = 'handed_off', sent_at = now()
-    where id in (select id from messages where business_id = ${businessId} and channel = 'sms' and status = 'queued'
-                 order by created_at limit 40 for update skip locked)
-    returning id, to_phone as phone, body`;
-}
-
 /** Everything the scheduled jobs do, for every business. */
 export async function runMessagingJobs() {
   const businesses = await sql<{ id: string }[]>`select id from businesses`;
@@ -421,7 +388,7 @@ export async function monthlyMarketingReminder(businessId: string) {
 export async function remindAbandoned(businessId: string, t: Template) {
   const minutes = t.offset_minutes ?? 120;
   const drafts = await sql<{ id: string; phone: string; first_name: string | null; email: string | null; summary: string | null;
-                            step: string; client_id: string | null; sms_ok: boolean; business: string; business_phone: string | null }[]>`
+                            step: string; client_id: string | null; business: string; business_phone: string | null }[]>`
     update booking_drafts d set reminded_at = now()
     from businesses b
     where b.id = d.business_id and d.id in (
@@ -432,37 +399,57 @@ export async function remindAbandoned(businessId: string, t: Template) {
         and not exists (select 1 from appointments a join clients c on c.id = a.client_id
                         where c.business_id = x.business_id and c.phone = x.phone and a.created_at > x.created_at)
       for update skip locked)
-    returning d.id, d.phone, d.first_name, d.email, d.summary, d.step, d.client_id, b.name as business, b.phone as business_phone,
-      exists (select 1 from clients c where c.id = d.client_id and c.sms_consent_at is not null and c.sms_opted_out_at is null) as sms_ok`;
+    returning d.id, d.phone, d.first_name, d.email, d.summary, d.step, d.client_id, b.name as business, b.phone as business_phone`;
   for (const d of drafts) {
-    const vars = {
-      client: d.first_name ?? "there",
-      service: d.summary ?? "your cleaning",
-      business: d.business,
-      business_phone: phoneLabel(d.business_phone),
-      booking_url: `${appUrl()}/book?phone=${d.phone.replace(/^\+1/, "")}`,
-    };
-    const body = render(t.body, vars);
-    // Text only to clients who agreed to texts before; everyone else who left an email gets an email.
-    if (d.sms_ok) {
-      await sql`
-        insert into messages (business_id, client_id, direction, channel, to_phone, body, template_trigger, status, dedupe_key)
-        values (${businessId}, ${d.client_id}, 'out', 'sms', ${d.phone}, ${body}, 'abandoned_booking', 'queued', ${`abandoned:${d.id}:sms`})
-        on conflict (dedupe_key) do nothing`;
-    }
-    if (d.email) {
-      await sql`
-        insert into messages (business_id, client_id, direction, channel, to_email, subject, body, template_trigger, status, dedupe_key)
-        values (${businessId}, ${d.client_id}, 'out', 'email', ${d.email}, ${render(t.email_subject ?? d.business, vars)}, ${body},
-                'abandoned_booking', 'queued', ${`abandoned:${d.id}:email`})
-        on conflict (dedupe_key) do nothing`;
-    }
+    await queueAbandonedEmail(businessId, d, t);
     const who = `${d.first_name ?? "Someone"} ${phoneLabel(d.phone)}`;
-    const sent = d.sms_ok || d.email ? "We sent them a link to finish." : "They left no email, so give them a call.";
+    const sent = d.email ? "We emailed them a link to finish." : "They left no email, so give them a call.";
     await notifyOwner(businessId, `Didn't finish booking: ${d.first_name ?? phoneLabel(d.phone)}`,
       `${who} started booking${d.summary ? ` (${d.summary})` : ""} online and stopped (${STEP_LABEL[d.step] ?? d.step}). ${sent}`,
       "/requests");
   }
+}
+
+type DraftForEmail = { id: string; phone: string; first_name: string | null; email: string | null; summary: string | null;
+                      client_id: string | null; business: string; business_phone: string | null };
+
+async function queueAbandonedEmail(businessId: string, d: DraftForEmail, t: Template) {
+  if (!d.email) return false;
+  const vars = {
+    client: d.first_name ?? "there",
+    service: d.summary ?? "your cleaning",
+    business: d.business,
+    business_phone: phoneLabel(d.business_phone),
+    booking_url: `${appUrl()}/book?phone=${d.phone.replace(/^\+1/, "")}`,
+  };
+  const rows = await sql`
+    insert into messages (business_id, client_id, direction, channel, to_email, subject, body, template_trigger, status, dedupe_key)
+    values (${businessId}, ${d.client_id}, 'out', 'email', ${d.email}, ${render(t.email_subject ?? d.business, vars)},
+            ${render(t.body, vars)}, 'abandoned_booking', 'queued', ${`abandoned:${d.id}:email`})
+    on conflict (dedupe_key) do nothing
+    returning id`;
+  return rows.length > 0;
+}
+
+/**
+ * The owner tapped Email on an abandoned booking: the "finish booking" email goes out now
+ * (once per booking, like the automatic one). Returns a message for the owner.
+ */
+export async function emailAbandonedNow(businessId: string, draftId: string) {
+  const [d] = await sql<DraftForEmail[]>`
+    select d.id, d.phone, d.first_name, d.email, d.summary, d.client_id, b.name as business, b.phone as business_phone
+    from booking_drafts d join businesses b on b.id = d.business_id
+    where d.id = ${draftId} and d.business_id = ${businessId}`;
+  if (!d) return "Not found.";
+  if (!d.email) return "They left no email. Give them a call.";
+  const [t] = await sql<Template[]>`
+    select body, email_subject, offset_days, offset_minutes, null as send_at_time, only_if_unconfirmed
+    from message_templates where business_id = ${businessId} and trigger = 'abandoned_booking' limit 1`;
+  if (!t) return "The 'finish booking' message is missing in Settings → Messages.";
+  const queued = await queueAbandonedEmail(businessId, d, t);
+  await sql`update booking_drafts set contacted_at = now(), reminded_at = coalesce(reminded_at, now()) where id = ${draftId}`;
+  await sendQueuedEmails(businessId);
+  return queued ? `Email sent to ${d.email}.` : `They already got the email at ${d.email}.`;
 }
 
 export const STEP_LABEL: Record<string, string> = {

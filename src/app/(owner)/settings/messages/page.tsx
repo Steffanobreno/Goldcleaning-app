@@ -4,36 +4,30 @@ import { requireStaff } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { emailConfigured } from "@/lib/email";
 import { TestEmailButton } from "./test-email";
-import { TestTextForm } from "./test-text";
-import { phoneLabel } from "@/lib/format";
 import { Button, Card, Field, Input, Notice, Page, PageHeader, Textarea } from "@/components/ui";
-import { CopyField } from "@/components/copy-field";
-import { newDeviceKeyAction, saveMessagingSettingsAction, saveTemplateAction, setAutoMessagesAction } from "../actions";
+import { saveMessagingSettingsAction, saveTemplateAction, setAutoMessagesAction } from "../actions";
 import { SimpleForm } from "../forms";
 
-export const metadata: Metadata = { title: "Texts and email" };
+export const metadata: Metadata = { title: "Email messages" };
 
 const TEMPLATE_INFO: Record<string, { title: string; when: string }> = {
-  booked: { title: "Booking confirmation", when: "When you book a visit or accept a request" },
+  booked: { title: "Booking confirmation", when: "When you book a cleaning in the app" },
   request_received: { title: "Request received", when: "When a client sends a request online" },
+  request_accepted: { title: "Request accepted", when: "When you accept an online request" },
   request_declined: { title: "Request declined", when: "When you decline an online request" },
   reminder: { title: "Appointment reminder", when: "Days before the visit, at a set time" },
   confirmed: { title: "Confirmed", when: "When the client taps Confirm on their link" },
   cancelled: { title: "Cancelled", when: "When the visit is cancelled" },
-  on_my_way: { title: "On my way", when: "You send it with the button on the appointment" },
   rebook: { title: "Time to rebook", when: "When the booked frequency has passed (4 weeks after a one-time cleaning), at a set time" },
   review_request: { title: "Review request", when: "Minutes after checkout (needs the review link)" },
   abandoned_booking: { title: "Didn't finish booking", when: "A while after someone stops halfway on the booking page (8am–8pm)" },
+  quote_received: { title: "Quote request received", when: "When someone asks for an Airbnb or office quote" },
 };
 const ORDER = Object.keys(TEMPLATE_INFO);
 
 export default async function MessagesSettingsPage() {
   const staff = await requireStaff();
-  const [b] = await sql`select email, phone, review_url, website_url, device_key, auto_messages_enabled from businesses where id = ${staff.businessId}`;
-  const [[waiting], [lastPickup]] = await Promise.all([
-    sql<{ n: number }[]>`select count(*)::int as n from messages where business_id = ${staff.businessId} and channel = 'sms' and status = 'queued'`,
-    sql<{ at: Date | null }[]>`select max(sent_at) as at from messages where business_id = ${staff.businessId} and channel = 'sms' and status = 'handed_off'`,
-  ]);
+  const [b] = await sql`select email, phone, review_url, website_url, auto_messages_enabled from businesses where id = ${staff.businessId}`;
   const templates = await sql<
     { id: string; trigger: string; body: string; email_subject: string | null; enabled: boolean;
       offset_days: number | null; offset_minutes: number | null; send_at_time: string | null }[]
@@ -41,46 +35,24 @@ export default async function MessagesSettingsPage() {
     select id, trigger, body, email_subject, enabled, offset_days, offset_minutes, to_char(send_at_time, 'HH24:MI') as send_at_time
     from message_templates where business_id = ${staff.businessId}`;
   templates.sort((x, y) => ORDER.indexOf(x.trigger) - ORDER.indexOf(y.trigger));
-  const appUrl = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  const outbox = `${appUrl}/api/device/outbox?key=${b.device_key}`;
 
   return (
     <>
-      <PageHeader title="Texts and email" back="/settings" />
+      <PageHeader title="Email messages" back="/settings" />
       <Page>
         <Card className="space-y-3">
           <h2 className="font-bold">Automatic messages</h2>
           {b.auto_messages_enabled ? (
-            <Notice kind="success">On. Confirmations, reminders and rebook messages go out by themselves.</Notice>
+            <Notice kind="success">On. Confirmations, reminders and rebook emails go out by themselves.</Notice>
           ) : (
             <Notice kind="warn">
-              Off for visits you book in the app or imported: your old app still sends those, so clients don&apos;t get
-              doubles. Turn this on the day you stop using the old app. Visits booked on your online booking page always get
-              their messages (the old app doesn&apos;t know them).
+              Off for cleanings you book in the app: turn it on when you&apos;re ready for clients to get confirmations and
+              reminders by email. Requests from your online booking page always get their emails.
             </Notice>
           )}
           <form action={setAutoMessagesAction.bind(null, !b.auto_messages_enabled)}>
             <Button type="submit" kind={b.auto_messages_enabled ? "secondary" : "primary"} className="w-full">
               {b.auto_messages_enabled ? "Turn automatic messages off" : "Turn automatic messages on"}
-            </Button>
-          </form>
-        </Card>
-
-        <Card className="space-y-3">
-          <h2 className="font-bold">Texts from your iPhone</h2>
-          <p className="text-sm text-muted">
-            Texts go out from your own number. An automation in the Shortcuts app opens this link and sends what it gets.
-            The setup steps are in the guide.
-          </p>
-          <CopyField label="Link for the Shortcut" value={outbox} />
-          <p className="text-sm">
-            {waiting.n > 0 ? `${waiting.n} text${waiting.n > 1 ? "s" : ""} waiting for the iPhone.` : "No texts waiting."}
-            {lastPickup.at && ` Last pickup by the iPhone: ${lastPickup.at.toLocaleString("en-US", { timeZone: staff.timezone, dateStyle: "medium", timeStyle: "short" })}.`}
-          </p>
-          <TestTextForm defaultPhone={phoneLabel(b.phone)} />
-          <form action={newDeviceKeyAction}>
-            <Button type="submit" kind="ghost" className="w-full">
-              Make a new link (the Shortcut and calendar links change)
             </Button>
           </form>
         </Card>
@@ -114,8 +86,9 @@ export default async function MessagesSettingsPage() {
             <Link href="/settings/messages/preview" className="text-sm font-semibold text-brand">Preview emails</Link>
           </div>
           <p className="px-1 text-xs text-muted">
-            You can use {"{client}"}, {"{service}"}, {"{total}"}, {"{date}"}, {"{time}"}, {"{link}"} (confirm or cancel page), {"{booking_url}"},{" "}
-            {"{business}"}, {"{business_phone}"}, {"{days}"}, {"{review_url}"}.
+            You can use {"{client}"}, {"{service}"}, {"{home}"} (like 3 bd / 2 ba), {"{total}"}, {"{date}"}, {"{time}"},{" "}
+            {"{appointment_url}"} (their page to see, confirm or cancel), {"{booking_url}"}, {"{business}"}, {"{business_phone}"},{" "}
+            {"{review_url}"}.
           </p>
           {templates.map((t) => {
             const info = TEMPLATE_INFO[t.trigger] ?? { title: t.trigger, when: "" };

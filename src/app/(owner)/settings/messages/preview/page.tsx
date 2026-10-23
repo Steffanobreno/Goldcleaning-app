@@ -11,6 +11,7 @@ export const metadata: Metadata = { title: "Email preview" };
 
 const TRIGGERS: { trigger: Trigger; label: string }[] = [
   { trigger: "request_received", label: "Request received" },
+  { trigger: "request_accepted", label: "Accepted" },
   { trigger: "booked", label: "Booked" },
   { trigger: "reminder", label: "Reminder" },
   { trigger: "confirmed", label: "Confirmed" },
@@ -83,7 +84,7 @@ export default async function EmailPreviewPage({ searchParams }: PageProps<"/set
         <iframe title="Email preview" srcDoc={emailHtml(text, b.name, details)} className="h-[760px] w-full rounded-[var(--radius-card)] border border-line bg-white" />
         <Notice kind="info">
           {latest ? "Filled in with your latest visit. " : "Filled in with a made-up visit. "}
-          To change the words, edit the message in Texts and email; the card with the date, cleaning and price is added by the app.
+          To change the words, edit the message in Email messages; the card with the date, cleaning and price is added by the app.
         </Notice>
       </Page>
     </>

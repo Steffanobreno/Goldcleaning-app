@@ -4,12 +4,11 @@ import { notFound } from "next/navigation";
 import { requireStaff } from "@/lib/auth";
 import { getAppointment } from "@/lib/data/appointments";
 import { getInvoiceForAppointment } from "@/lib/data/invoices";
-import { smsTextFor } from "@/lib/messaging";
 import { sql } from "@/lib/db";
 import { fullName } from "@/lib/data/clients";
 import { addDaysYmd, dayLabel, hm, longDayLabel, minutesLabel, money, phoneLabel, timeLabel, ymd, zonedToUtc } from "@/lib/format";
 import { Button, Card, Notice, Page, PageHeader, statusLabel, Textarea } from "@/components/ui";
-import { Calendar, Card as Card2, Chat, Check, ChevronDown, ChevronRight, Clock, Close, Hourglass, Pencil, Phone, Pin, Plus, Van } from "@/components/icons";
+import { Calendar, Card as Card2, Chat, Check, ChevronDown, ChevronRight, Clock, Close, Hourglass, Mail, Pencil, Phone, Pin, Plus } from "@/components/icons";
 import { NEXT_STATUS } from "@/lib/appointment-status";
 import { ruleLabel, type RepeatRule } from "@/lib/repeat";
 import { assignGroomerAction, setStatusAction, rescheduleAction, startCheckoutAction, updateNotesAction } from "../actions";
@@ -43,8 +42,7 @@ const TRIGGER_LABEL: Record<string, string> = {
   review_request: "Review request",
 };
 const MESSAGE_STATUS: Record<string, string> = {
-  queued: "Waiting for your iPhone",
-  handed_off: "Sent from iPhone",
+  queued: "Sending",
   sent: "Sent",
   failed: "Failed",
   skipped: "Not sent (too late)",
@@ -56,9 +54,8 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
   const sp = await searchParams;
   const appt = await getAppointment(staff, id);
   if (!appt) notFound();
-  const [checkout, onMyWay, messages, [series], groomers] = await Promise.all([
+  const [checkout, messages, [series], groomers] = await Promise.all([
     getInvoiceForAppointment(staff, id),
-    smsTextFor(id, "on_my_way"),
     sql<{ id: string; channel: string; status: string; template_trigger: string | null; created_at: Date }[]>`
       select id, channel, status, template_trigger, created_at from messages
       where appointment_id = ${id} and business_id = ${staff.businessId} order by created_at desc limit 20`,
@@ -92,6 +89,7 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
       <PageHeader title="Appointment" back={`/today?date=${ymd(appt.start_at, tz)}`} />
       <Page>
         {sp.booked === "1" && <Notice kind="success">Appointment booked.</Notice>}
+        {!c.email && <Notice kind="warn">No email on file: {c.first_name} gets no confirmations or reminders. Add one on their profile.</Notice>}
         {sp.accepted === "1" && (
           <Notice kind="success">
             Request accepted{typeof sp.repeat === "string" ? `, and ${sp.repeat} more cleaning${sp.repeat === "1" ? "" : "s"} booked in the series` : ""}.
@@ -131,7 +129,11 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
         </details>
 
         <nav aria-label="Actions" className="card grid grid-cols-3 gap-1 p-2">
-          <a href={`sms:${c.phone}`} className={pillar}><Chat size={22} />Message</a>
+          {c.email ? (
+            <a href={`mailto:${c.email}`} className={pillar}><Mail size={22} />Email</a>
+          ) : (
+            <a href={`sms:${c.phone}`} className={pillar}><Chat size={22} />Text</a>
+          )}
           <a href={`tel:${c.phone}`} className={pillar}><Phone size={22} />Call</a>
           {!paid && ["in_progress", "completed", "en_route", "confirmed", "unconfirmed"].includes(appt.status) && (
             <Link href={`/appointments/${id}/checkout`} className={pillar}><Card2 size={22} />Take payment</Link>
@@ -142,9 +144,6 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
             </AddressLink>
           ) : (
             <span className={`${pillar} opacity-40`}><Pin size={22} />No address</span>
-          )}
-          {["confirmed", "unconfirmed", "en_route"].includes(appt.status) && onMyWay && (
-            <a href={`sms:${c.phone}&body=${encodeURIComponent(onMyWay)}`} className={pillar}><Van size={22} />On my way</a>
           )}
           {canMove && <a href="#reschedule" className={pillar}><Calendar size={22} />Reschedule</a>}
           {canChange && <Link href={`/appointments/${id}/services`} className={pillar}><Pencil size={22} />Edit price</Link>}
@@ -298,7 +297,7 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
               {messages.map((m) => (
                 <li key={m.id} className="flex justify-between gap-3 px-4 py-2.5">
                   <span>
-                    {TRIGGER_LABEL[m.template_trigger ?? ""] ?? m.template_trigger} · {m.channel === "sms" ? "Text" : "Email"}
+                    {TRIGGER_LABEL[m.template_trigger ?? ""] ?? m.template_trigger}
                   </span>
                   <span className="text-muted">{MESSAGE_STATUS[m.status] ?? m.status}</span>
                 </li>
