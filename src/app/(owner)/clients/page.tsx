@@ -20,10 +20,10 @@ export default async function ClientsPage({ searchParams }: PageProps<"/clients"
         <form role="search">
           {inactive && <input type="hidden" name="show" value="inactive" />}
           <label className="sr-only" htmlFor="q">Search clients</label>
-          <Input id="q" name="q" type="search" defaultValue={q} placeholder="Search by name, phone or pet" className="rounded-full px-5" />
+          <Input id="q" name="q" type="search" defaultValue={q} placeholder="Search by name, phone or address" className="rounded-full px-5" />
         </form>
         <p className="px-1 text-sm text-muted">
-          CLIENTS <strong className="text-ink">{counts.clients}</strong> · DOGS <strong className="text-ink">{counts.pets}</strong>
+          CLIENTS <strong className="text-ink">{counts.clients}</strong> · HOMES <strong className="text-ink">{counts.homes}</strong>
           {q && <> · {clients.length} found</>}
           <Link href={inactive ? "/clients" : "/clients?show=inactive"} className="float-right font-semibold text-brand">
             {inactive ? "Active clients" : "Inactive clients"}
@@ -33,7 +33,7 @@ export default async function ClientsPage({ searchParams }: PageProps<"/clients"
         {sp.removed && <Notice kind="success">Client removed.</Notice>}
         {clients.length === 0 ? (
           <Empty title={q ? "No client matches that search" : inactive ? "No inactive clients" : "No clients yet"}>
-            {q ? "Try part of the name, the phone number or the pet's name." : "Add your first client to start booking."}
+            {q ? "Try part of the name, the phone number, the street or the ZIP." : "Add your first client to start booking."}
           </Empty>
         ) : (
           <ul className="space-y-2">
@@ -49,8 +49,7 @@ export default async function ClientsPage({ searchParams }: PageProps<"/clients"
                       {c.is_new && <span className="shrink-0 rounded-full bg-brand px-2 py-0.5 text-[11px] font-bold text-white">New</span>}
                     </span>
                     <span className="block truncate text-sm">
-                      {c.pet_names ? <span className="font-medium">{c.pet_names}</span> : <span className="text-muted">No pets yet</span>}
-                      {c.pet_breeds && <span className="text-muted"> · {c.pet_breeds}</span>}
+                      {c.home_summary ? <span className="font-medium">{c.home_summary}</span> : <span className="text-muted">No home yet</span>}
                     </span>
                     <span className="block truncate text-xs text-muted">{[phoneLabel(c.phone), c.city ?? fullAddress(c)].filter(Boolean).join(" · ")}</span>
                   </span>

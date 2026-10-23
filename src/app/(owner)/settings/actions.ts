@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireStaff } from "@/lib/auth";
 import { isUniqueViolation, sql } from "@/lib/db";
-import { normalizePhone, parseMoney, SIZES } from "@/lib/format";
+import { normalizePhone, parseMoney } from "@/lib/format";
 import { sendEmail } from "@/lib/email";
 
 export type FormState = { error?: string; saved?: boolean } | undefined;
@@ -11,10 +11,9 @@ export type FormState = { error?: string; saved?: boolean } | undefined;
 export async function saveServiceAction(serviceId: string | null, _: FormState, form: FormData): Promise<FormState> {
   const staff = await requireStaff();
   const name = String(form.get("name") ?? "").trim();
-  const kind = form.get("kind") === "addon" ? "addon" : "service";
-  const category = String(form.get("category") ?? "").trim() || (kind === "addon" ? "Add-on" : null);
-  const size = String(form.get("size_class") ?? "");
-  const size_class = SIZES.some((s) => s.value === size) ? size : null;
+  const kind = form.get("kind") === "extra" ? "extra" : "service";
+  const category = String(form.get("category") ?? "").trim() || (kind === "extra" ? "Extras" : null);
+  const per_unit = kind === "extra" && form.get("per_unit") === "on";
   const duration = Number(form.get("duration_min"));
   const price = parseMoney(form.get("price"));
   const description = String(form.get("description") ?? "").trim() || null;
@@ -26,15 +25,15 @@ export async function saveServiceAction(serviceId: string | null, _: FormState, 
 
   if (serviceId) {
     await sql`
-      update services set name = ${name}, kind = ${kind}, category = ${category}, size_class = ${size_class},
+      update services set name = ${name}, kind = ${kind}, category = ${category}, per_unit = ${per_unit},
         duration_min = ${duration}, price_cents = ${price}, description = ${description},
         active = ${active}, online_bookable = ${online}
       where id = ${serviceId} and business_id = ${staff.businessId}`;
   } else {
     await sql`
-      insert into services (business_id, name, kind, category, size_class, duration_min, price_cents, description,
+      insert into services (business_id, name, kind, category, per_unit, duration_min, price_cents, description,
                             active, online_bookable, sort_order)
-      values (${staff.businessId}, ${name}, ${kind}, ${category}, ${size_class}, ${duration}, ${price}, ${description},
+      values (${staff.businessId}, ${name}, ${kind}, ${category}, ${per_unit}, ${duration}, ${price}, ${description},
               ${active}, ${online},
               (select coalesce(max(sort_order), 0) + 1 from services where business_id = ${staff.businessId}))`;
   }

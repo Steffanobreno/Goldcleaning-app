@@ -68,3 +68,45 @@ export function durationMinutes(
 ) {
   return home.bedrooms > rule.largeHomeBedrooms ? rule.baseMin + rule.largeHomeExtraMin : rule.baseMin;
 }
+
+// ---------------------------------------------------------------- catalog and quote
+
+export type DurationRule = { baseMin: number; largeHomeBedrooms: number; largeHomeExtraMin: number };
+export type CatalogService = {
+  id: string;
+  name: string;
+  description: string | null;
+  pricing: "rate" | "quote"; // "quote": no online price (Airbnb, Office)
+  recurring: boolean;
+  rates: Partial<Record<Frequency, Rate>>;
+};
+export type CatalogExtra = { id: string; name: string; unitCents: number; perUnit: boolean; icon: string | null };
+export type Catalog = { services: CatalogService[]; extras: CatalogExtra[]; rule: DurationRule };
+
+export type QuoteInput = { serviceId: string; frequency: Frequency; home: HomeSize; extras: { serviceId: string; qty: number }[] };
+export type Quote = { service: CatalogService; lines: PriceLine[]; totalCents: number; durationMin: number };
+
+export const MAX_EXTRA_QTY = 20;
+const inRange = (n: number, min: number, max: number) => Number.isInteger(n) && n >= min && n <= max;
+
+/** Prices a booking against the catalog, or says why it can't be priced online. */
+export function quote(cat: Catalog, input: QuoteInput): Quote | { error: string } {
+  const service = cat.services.find((s) => s.id === input.serviceId);
+  if (!service) return { error: "Please choose a service." };
+  if (service.pricing !== "rate") return { error: `${service.name} is priced by quote.` };
+  const rate = service.rates[input.frequency];
+  if (!rate) return { error: `${service.name} isn't offered ${FREQUENCY_LABEL[input.frequency].toLowerCase()}.` };
+  const { bedrooms, fullBaths, halfBaths } = input.home;
+  if (!inRange(bedrooms, 0, 7) || !inRange(fullBaths, 1, 7) || !inRange(halfBaths, 0, 7)) {
+    return { error: "Please check the number of bedrooms and bathrooms." };
+  }
+  const picks: ExtraPick[] = [];
+  for (const e of input.extras) {
+    const extra = cat.extras.find((x) => x.id === e.serviceId);
+    if (!extra) return { error: "One of the extras is no longer offered. Please reload the page." };
+    const qty = extra.perUnit ? Math.min(Math.max(Math.trunc(e.qty), 0), MAX_EXTRA_QTY) : e.qty > 0 ? 1 : 0;
+    picks.push({ serviceId: extra.id, name: extra.name, unitCents: extra.unitCents, qty });
+  }
+  const lines = priceLines(service, input.frequency, rate, input.home, picks);
+  return { service, lines, totalCents: totalCents(lines), durationMin: durationMinutes(input.home, cat.rule) };
+}

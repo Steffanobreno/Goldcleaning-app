@@ -2,16 +2,16 @@
 import { useActionState } from "react";
 import { ActionForm } from "@/components/action-form";
 import { Button, Field, Input, Notice, Select, Textarea } from "@/components/ui";
-import { SIZES, WEEKDAYS } from "@/lib/format";
+import { WEEKDAYS } from "@/lib/format";
 import type { FormState } from "./actions";
 
 type Action = (state: FormState, form: FormData) => Promise<FormState>;
 
 export type ServiceValues = {
   name: string;
-  kind: "service" | "addon";
+  kind: "service" | "extra";
   category: string | null;
-  size_class: string | null;
+  per_unit: boolean;
   duration_min: number;
   price_cents: number;
   description: string | null;
@@ -31,11 +31,11 @@ export function ServiceForm({ action, initial, categories }: { action: Action; i
         <Field label="Type">
           <Select name="kind" defaultValue={initial?.kind ?? "service"}>
             <option value="service">Service</option>
-            <option value="addon">Add-on</option>
+            <option value="extra">Extra</option>
           </Select>
         </Field>
         <Field label="Category">
-          <Input name="category" defaultValue={initial?.category ?? ""} list="categories" placeholder="Bath" />
+          <Input name="category" defaultValue={initial?.category ?? ""} list="categories" placeholder="Kitchen" />
           <datalist id="categories">
             {categories.map((c) => (
               <option key={c} value={c} />
@@ -43,16 +43,10 @@ export function ServiceForm({ action, initial, categories }: { action: Action; i
           </datalist>
         </Field>
       </div>
-      <Field label="Pet size" hint="Leave as 'Any size' for services that cost the same for every dog.">
-        <Select name="size_class" defaultValue={initial?.size_class ?? ""}>
-          <option value="">Any size</option>
-          {SIZES.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      <label className="flex items-center gap-3 text-sm">
+        <input type="checkbox" name="per_unit" defaultChecked={initial?.per_unit ?? false} className="h-4 w-4" />
+        Extras only: charged per unit (the client picks how many)
+      </label>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Price ($)">
           <Input
@@ -62,7 +56,7 @@ export function ServiceForm({ action, initial, categories }: { action: Action; i
             required
           />
         </Field>
-        <Field label="Time (minutes)" hint="0 for add-ons that take no extra time.">
+        <Field label="Time (minutes)" hint="0 for extras that take no extra time.">
           <Input name="duration_min" type="number" min={0} max={600} step={5} defaultValue={initial?.duration_min ?? 60} required />
         </Field>
       </div>

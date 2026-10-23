@@ -5,21 +5,24 @@ import { sql } from "../db";
 export type ServiceRow = {
   id: string;
   name: string;
-  kind: "service" | "addon";
+  kind: "service" | "extra";
   category: string | null;
-  size_class: string | null;
   description: string | null;
   duration_min: number;
   price_cents: number;
   online_bookable: boolean;
   sort_order: number;
   active: boolean;
+  pricing: "rate" | "quote";
+  recurring: boolean;
+  per_unit: boolean;
+  icon: string | null;
 };
 
 export async function listServices(staff: StaffContext, { includeInactive = false } = {}) {
   return sql<ServiceRow[]>`
-    select id, name, kind, category, size_class, description, duration_min, price_cents,
-           online_bookable, sort_order, active
+    select id, name, kind, category, description, duration_min, price_cents,
+           online_bookable, sort_order, active, pricing, recurring, per_unit, icon
     from services
     where business_id = ${staff.businessId} and (${includeInactive} or active)
     order by kind, sort_order, name`;
@@ -35,7 +38,7 @@ export async function getService(staff: StaffContext, id: string) {
 export function groupByCategory(services: ServiceRow[]) {
   const groups = new Map<string, ServiceRow[]>();
   for (const s of services) {
-    const key = s.category || (s.kind === "addon" ? "Add-on" : "Services");
+    const key = s.category || (s.kind === "extra" ? "Extras" : "Services");
     groups.set(key, [...(groups.get(key) ?? []), s]);
   }
   return [...groups.entries()];

@@ -3,9 +3,9 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireStaff } from "@/lib/auth";
 import { isUniqueViolation, sql } from "@/lib/db";
-import { normalizePhone, SIZES } from "@/lib/format";
+import { normalizePhone } from "@/lib/format";
 import { geocode } from "@/lib/maps";
-import { savePetPhoto } from "@/lib/pet-photos";
+import { ACCESS_METHODS, upsertHome, type AccessMethod, type HomeInput } from "@/lib/data/homes";
 
 export type FormState = { error?: string } | undefined;
 
@@ -61,7 +61,7 @@ export async function createClientAction(_: FormState, form: FormData): Promise<
     if (isUniqueViolation(e)) return { error: "A client with this phone number already exists." };
     throw e;
   }
-  redirect(`/clients/${id}/pets/new?first=1`);
+  redirect(`/clients/${id}/homes/new?first=1`);
 }
 
 export async function updateClientAction(clientId: string, _: FormState, form: FormData): Promise<FormState> {
@@ -98,71 +98,62 @@ export async function addNoteAction(clientId: string, form: FormData) {
   revalidatePath(`/clients/${clientId}`);
 }
 
-function readPet(form: FormData) {
-  const name = text(form, "name");
-  if (!name) return { error: "The pet's name is required." } as const;
-  const size = text(form, "size_class");
-  if (size && !SIZES.some((s) => s.value === size)) return { error: "Pick a size from the list." } as const;
-  const weight = text(form, "weight_lbs");
-  const rebook = text(form, "rebook_every_days");
-  const rebookDays = rebook ? Number(rebook) : null;
-  if (rebookDays !== null && !(rebookDays >= 7 && rebookDays <= 365))
-    return { error: "Grooming frequency must be between 7 and 365 days." } as const;
-  return {
-    values: {
-      name,
-      breed: text(form, "breed"),
-      size_class: size,
-      weight_lbs: weight && Number.isFinite(Number(weight)) ? Number(weight) : null,
-      coat_type: text(form, "coat_type"),
-      birth_date: text(form, "birth_date"),
-      sex: text(form, "sex"),
-      behavior: text(form, "behavior"),
-      vet_name: text(form, "vet_name"),
-      vet_phone: text(form, "vet_phone"),
-      notes: text(form, "notes"),
-      rebook_every_days: rebookDays,
-    },
-  } as const;
+const count = (form: FormData, key: string, min: number, max: number) => {
+  const n = Number(form.get(key));
+  return Number.isInteger(n) && n >= min && n <= max ? n : null;
+};
+
+function readHome(form: FormData) {
+  const bedrooms = count(form, "bedrooms", 0, 7);
+  const full_baths = count(form, "full_baths", 1, 7);
+  const half_baths = count(form, "half_baths", 0, 7);
+  if (bedrooms === null || full_baths === null || half_baths === null)
+    return { error: "Check the bedrooms and bathrooms (0–7 bedrooms, 1–7 full baths)." } as const;
+  const method = text(form, "access_method");
+  const access_method = ACCESS_METHODS.some((a) => a.value === method) ? (method as AccessMethod) : null;
+  const values: HomeInput = {
+    label: text(form, "label") ?? "Home",
+    address_line: text(form, "address_line"),
+    city: text(form, "city"),
+    state: text(form, "state") ?? "CA",
+    zip: text(form, "zip"),
+    bedrooms,
+    full_baths,
+    half_baths,
+    access_method,
+    access_code: text(form, "access_code"),
+    parking_notes: text(form, "parking_notes"),
+    pets_in_home: text(form, "pets_in_home"),
+    product_preferences: text(form, "product_preferences"),
+    notes: text(form, "notes"),
+  };
+  return { values } as const;
 }
 
-export async function savePetAction(clientId: string, petId: string | null, _: FormState, form: FormData): Promise<FormState> {
+export async function saveHomeAction(clientId: string, homeId: string | null, _: FormState, form: FormData): Promise<FormState> {
   const staff = await requireStaff();
-  const parsed = readPet(form);
+  const parsed = readHome(form);
   if ("error" in parsed) return { error: parsed.error };
   const v = parsed.values;
-  const [owner] = await sql`select id from clients where id = ${clientId} and business_id = ${staff.businessId}`;
-  if (!owner) return { error: "Client not found." };
-  if (petId) {
-    await sql`
-      update pets set name = ${v.name}, breed = ${v.breed}, size_class = ${v.size_class}, weight_lbs = ${v.weight_lbs},
-        coat_type = ${v.coat_type}, birth_date = ${v.birth_date}, sex = ${v.sex}, behavior = ${v.behavior},
-        vet_name = ${v.vet_name}, vet_phone = ${v.vet_phone}, notes = ${v.notes}, rebook_every_days = ${v.rebook_every_days}
-      where id = ${petId} and client_id = ${clientId}`;
-  } else {
-    await sql`
-      insert into pets (client_id, name, breed, size_class, weight_lbs, coat_type, birth_date, sex, behavior,
-                        vet_name, vet_phone, notes, rebook_every_days)
-      values (${clientId}, ${v.name}, ${v.breed}, ${v.size_class}, ${v.weight_lbs}, ${v.coat_type}, ${v.birth_date},
-              ${v.sex}, ${v.behavior}, ${v.vet_name}, ${v.vet_phone}, ${v.notes}, ${v.rebook_every_days})`;
-  }
+  const geo = await locate(v);
+  const id = await upsertHome(
+    staff,
+    clientId,
+    { ...v, city: v.city ?? geo?.city ?? null, zip: v.zip ?? geo?.zip ?? null, lat: geo?.lat ?? null, lng: geo?.lng ?? null },
+    homeId ?? undefined,
+  );
+  if (!id) return { error: "Client not found." };
   revalidatePath(`/clients/${clientId}`);
-  redirect(form.get("then") === "book" ? `/appointments/new?client=${clientId}` : `/clients/${clientId}`);
+  redirect(form.get("then") === "book" ? `/appointments/new?client=${clientId}&home=${id}` : `/clients/${clientId}`);
 }
 
-
-export async function savePetPhotoAction(petId: string, form: FormData): Promise<{ error?: string }> {
+/** Hides a home the client no longer has (sold, moved out); its past visits stay. */
+export async function archiveHomeAction(clientId: string, homeId: string) {
   const staff = await requireStaff();
-  const [pet] = await sql`select p.client_id from pets p join clients c on c.id = p.client_id
-                          where p.id = ${petId} and c.business_id = ${staff.businessId}`;
-  if (!pet) return { error: "Pet not found." };
-  const file = form.get("photo");
-  if (!(file instanceof Blob)) return { error: "Choose a photo." };
-  const error = await savePetPhoto(petId, new Uint8Array(await file.arrayBuffer()));
-  if (error) return { error };
-  revalidatePath(`/clients/${pet.client_id}`);
-  revalidatePath(`/clients/${pet.client_id}/pets/${petId}`);
-  return {};
+  await sql`update homes h set archived_at = now()
+            from clients c where c.id = h.client_id and h.id = ${homeId} and c.business_id = ${staff.businessId}`;
+  revalidatePath(`/clients/${clientId}`);
+  redirect(`/clients/${clientId}`);
 }
 
 /** The switches under "Business control" on the client profile. */
@@ -183,15 +174,6 @@ export async function setClientControlAction(
   revalidatePath("/clients");
 }
 
-/** Marks a pet as passed away (or undoes it): hidden from booking, lists and reminders. */
-export async function setPetPassedAction(clientId: string, petId: string, passed: boolean) {
-  const staff = await requireStaff();
-  await sql`update pets p set deceased_at = ${passed ? new Date() : null}
-            from clients c where c.id = p.client_id and p.id = ${petId} and c.business_id = ${staff.businessId}`;
-  revalidatePath(`/clients/${clientId}`);
-  redirect(`/clients/${clientId}`);
-}
-
 export async function deleteNoteAction(clientId: string, noteId: string) {
   const staff = await requireStaff();
   await sql`delete from client_notes n using clients c
@@ -199,35 +181,8 @@ export async function deleteNoteAction(clientId: string, noteId: string) {
   revalidatePath(`/clients/${clientId}`);
 }
 
-export async function addVaccineAction(clientId: string, petId: string, _: FormState, form: FormData): Promise<FormState> {
-  const staff = await requireStaff();
-  const name = String(form.get("name") ?? "").trim().slice(0, 60);
-  const expires = String(form.get("expires_on") ?? "");
-  const given = String(form.get("given_on") ?? "");
-  if (!name) return { error: "Pick the vaccine." };
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(expires)) return { error: "Type when it expires (it's on the certificate)." };
-  if (given && !/^\d{4}-\d{2}-\d{2}$/.test(given)) return { error: "Check the date it was given." };
-  const [ok] = await sql`
-    insert into vaccines (pet_id, name, given_on, expires_on)
-    select p.id, ${name}, ${given || null}, ${expires} from pets p join clients c on c.id = p.client_id
-    where p.id = ${petId} and c.business_id = ${staff.businessId}
-    returning id`;
-  if (!ok) return { error: "Pet not found." };
-  revalidatePath(`/clients/${clientId}/pets/${petId}`);
-  revalidatePath(`/clients/${clientId}`);
-  return undefined;
-}
-
-export async function deleteVaccineAction(clientId: string, petId: string, vaccineId: string) {
-  const staff = await requireStaff();
-  await sql`delete from vaccines v using pets p, clients c
-            where v.id = ${vaccineId} and p.id = v.pet_id and c.id = p.client_id and c.business_id = ${staff.businessId}`;
-  revalidatePath(`/clients/${clientId}/pets/${petId}`);
-  revalidatePath(`/clients/${clientId}`);
-}
-
 /**
- * Removes a client for good: their pets, visits, bills and payments, notes and signatures.
+ * Removes a client for good: their homes, visits, bills and payments, notes and signatures.
  * Messages already sent stay in the log without the name. Can't be undone.
  */
 export async function deleteClientAction(clientId: string) {

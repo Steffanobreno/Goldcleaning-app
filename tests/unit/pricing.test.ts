@@ -87,3 +87,74 @@ test("duration: 3 bd takes 180 minutes, 4 bd takes 240", () => {
   assert.equal(durationMinutes(home(3, 2, 1), rule), 180);
   assert.equal(durationMinutes(home(4, 2, 0), rule), 240);
 });
+
+// ---------------------------------------------------------------- quote() over the catalog
+
+import { quote, type Catalog } from "../../src/lib/pricing";
+
+const CATALOG: Catalog = {
+  services: [
+    {
+      id: "svc-regular",
+      name: "Regular Clean",
+      description: null,
+      pricing: "rate",
+      recurring: true,
+      rates: { one_time: REGULAR_ONE_TIME, weekly: REGULAR_WEEKLY },
+    },
+    { id: "svc-deep", name: "Deep Clean", description: null, pricing: "rate", recurring: false, rates: { one_time: DEEP_ONE_TIME } },
+    { id: "svc-airbnb", name: "Airbnb Turnover", description: null, pricing: "quote", recurring: false, rates: {} },
+  ],
+  extras: [
+    { id: "x-oven", name: "Inside Oven", unitCents: 4000, perUnit: true, icon: "oven" },
+    { id: "x-cab", name: "Inside Cabinets", unitCents: 6500, perUnit: false, icon: "cabinet" },
+  ],
+  rule: { baseMin: 180, largeHomeBedrooms: 3, largeHomeExtraMin: 60 },
+};
+
+test("quote: weekly 3/2/1 + Inside Oven x1 = 27840, 180 minutes", () => {
+  const q = quote(CATALOG, {
+    serviceId: "svc-regular",
+    frequency: "weekly",
+    home: home(3, 2, 1),
+    extras: [{ serviceId: "x-oven", qty: 1 }],
+  });
+  assert.ok(!("error" in q));
+  assert.equal(q.totalCents, 27840);
+  assert.equal(q.durationMin, 180);
+});
+
+test("quote: 4 bedrooms takes 240 minutes", () => {
+  const q = quote(CATALOG, { serviceId: "svc-deep", frequency: "one_time", home: home(4, 3, 0), extras: [] });
+  assert.ok(!("error" in q));
+  assert.equal(q.totalCents, 49000);
+  assert.equal(q.durationMin, 240);
+});
+
+test("quote: an on/off extra counts once even if asked twice", () => {
+  const q = quote(CATALOG, { serviceId: "svc-regular", frequency: "one_time", home: home(1, 1, 0), extras: [{ serviceId: "x-cab", qty: 3 }] });
+  assert.ok(!("error" in q));
+  assert.equal(q.totalCents, 19100 + 6500);
+});
+
+test("quote: per-unit extras are capped at 20", () => {
+  const q = quote(CATALOG, { serviceId: "svc-regular", frequency: "one_time", home: home(1, 1, 0), extras: [{ serviceId: "x-oven", qty: 99 }] });
+  assert.ok(!("error" in q));
+  assert.equal(q.totalCents, 19100 + 20 * 4000);
+});
+
+test("quote: refuses quote-only services, frequencies without a rate, and unknown ids", () => {
+  const base = { frequency: "one_time" as const, home: home(1, 1, 0), extras: [] };
+  assert.ok("error" in quote(CATALOG, { ...base, serviceId: "svc-airbnb" }));
+  assert.ok("error" in quote(CATALOG, { ...base, serviceId: "svc-deep", frequency: "weekly" }));
+  assert.ok("error" in quote(CATALOG, { ...base, serviceId: "nope" }));
+  assert.ok("error" in quote(CATALOG, { ...base, serviceId: "svc-regular", extras: [{ serviceId: "nope", qty: 1 }] }));
+});
+
+test("quote: home sizes outside the form's range are refused", () => {
+  const base = { serviceId: "svc-regular", frequency: "one_time" as const, extras: [] };
+  assert.ok("error" in quote(CATALOG, { ...base, home: home(8, 1, 0) }));
+  assert.ok("error" in quote(CATALOG, { ...base, home: home(1, 0, 0) }));
+  assert.ok("error" in quote(CATALOG, { ...base, home: home(1, 1, -1) }));
+  assert.ok("error" in quote(CATALOG, { ...base, home: home(1.5, 1, 0) }));
+});

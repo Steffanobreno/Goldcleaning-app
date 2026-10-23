@@ -13,7 +13,7 @@ export default async function NewClientPage() {
       <PageHeader title="New client" back="/clients" />
       <Page>
         <Card>
-          <ClientForm action={createClientAction} submitLabel="Save and add a pet" />
+          <ClientForm action={createClientAction} submitLabel="Save and add the home" />
         </Card>
       </Page>
     </>

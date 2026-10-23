@@ -2,16 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireStaff } from "@/lib/auth";
-import { clientHistory, clientSummary, fullAddress, fullName, getClient, listClientNotes, listPets } from "@/lib/data/clients";
+import { clientHistory, clientSummary, fullAddress, fullName, getClient, listClientNotes } from "@/lib/data/clients";
+import { accessLabel, homeSizeLabel, listHomes } from "@/lib/data/homes";
+import { FREQUENCY_LABEL } from "@/lib/pricing";
 import { AddressLink, PhoneLink } from "@/components/contact-sheet";
 import { Chat, Phone } from "@/components/icons";
 import { methodLabel } from "@/lib/payment-methods";
-import { dayLabel, isUuid, money, phoneLabel, sizeLabel, timeLabel, todayYmd } from "@/lib/format";
-import { alertText, vaccineAlerts } from "@/lib/data/vaccines";
-import { sql } from "@/lib/db";
+import { dayLabel, isUuid, money, phoneLabel, timeLabel } from "@/lib/format";
 import { Button, ButtonLink, Card, Empty, Notice, Page, PageHeader, StatusBadge, Textarea } from "@/components/ui";
 import { addNoteAction, deleteClientAction, deleteNoteAction, setClientControlAction } from "../actions";
-import { PetPhoto } from "@/components/pet-photo";
 import { activeAgreement, currentSignature } from "@/lib/agreement";
 
 export const metadata: Metadata = { title: "Client" };
@@ -21,17 +20,15 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
   const { id } = await params;
   if (!isUuid(id)) notFound();
   // Everything at once: each round trip to the database adds a little wait.
-  const [client, pets, notes, history, agreement, summary, passed] = await Promise.all([
+  const [client, homes, notes, history, agreement, summary] = await Promise.all([
     getClient(staff, id),
-    listPets(staff, id),
+    listHomes(staff, id),
     listClientNotes(staff, id),
     clientHistory(staff, id),
     activeAgreement(staff.businessId),
     clientSummary(staff, id),
-    sql<{ id: string; name: string }[]>`select id, name from pets where client_id = ${id} and deceased_at is not null order by name`,
   ]);
   if (!client) notFound();
-  const vaccines = await vaccineAlerts(staff, pets.map((p) => p.id), todayYmd(staff.timezone));
   const signature = agreement ? await currentSignature(agreement, id) : null;
   const address = fullAddress(client);
   const tz = staff.timezone;
@@ -39,8 +36,8 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
   const upcoming = history.filter((a) => a.upcoming).reverse();
   const past = history.filter((a) => !a.upcoming);
   const noShows = history.filter((a) => a.status === "no_show").length;
-  const frequencies = pets.map((p) => p.rebook_every_days).filter((d): d is number => d != null);
-  const preferredDays = frequencies.length ? Math.min(...frequencies) : null;
+  // The frequency of their latest booking (upcoming first).
+  const latest = upcoming[0] ?? past.find((a) => !["cancelled", "declined"].includes(a.status));
 
   return (
     <>
@@ -119,7 +116,7 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
             </dd>
             {client.access_notes && (
               <>
-                <dt className="text-muted">Access</dt>
+                <dt className="text-muted">Notes</dt>
                 <dd className="whitespace-pre-line">{client.access_notes}</dd>
               </>
             )}
@@ -149,33 +146,22 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
 
         <section className="space-y-2">
           <div className="flex items-center justify-between">
-            <h2 className="section-label">Pets</h2>
-            <ButtonLink kind="ghost" href={`/clients/${id}/pets/new`}>Add pet</ButtonLink>
+            <h2 className="section-label">Homes</h2>
+            <ButtonLink kind="ghost" href={`/clients/${id}/homes/new`}>Add home</ButtonLink>
           </div>
-          {passed.length > 0 && (
-            <p className="px-1 text-sm text-muted">
-              In memory 🌈{" "}
-              {passed.map((p, i) => (
-                <span key={p.id}>{i > 0 && ", "}<Link href={`/clients/${id}/pets/${p.id}`} className="underline">{p.name}</Link></span>
-              ))}
-            </p>
-          )}
-          {pets.length === 0 ? (
-            <Empty title="No pets yet">Add a pet before booking.</Empty>
+          {homes.length === 0 ? (
+            <Empty title="No home yet">Add the home we clean before booking.</Empty>
           ) : (
             <ul className="grid gap-2 sm:grid-cols-2">
-              {pets.map((p) => (
-                <li key={p.id}>
-                  <Link href={`/clients/${id}/pets/${p.id}`} className="card flex items-center gap-3 p-3 hover:bg-bg">
-                    <PetPhoto petId={p.id} version={p.photo_version} name={p.name} />
-                    <div className="min-w-0">
-                      <div className="font-semibold">{p.name}</div>
-                      <div className="text-sm text-muted">{[p.breed, sizeLabel(p.size_class)].filter(Boolean).join(" · ")}</div>
-                      {vaccines.filter((v) => v.pet_id === p.id).map((v) => (
-                        <div key={v.name} className={`text-xs font-semibold ${v.expired ? "text-danger" : "text-warn"}`}>💉 {alertText(v)}</div>
-                      ))}
-                      {p.behavior && <div className="mt-1 text-sm text-warn">{p.behavior}</div>}
-                    </div>
+              {homes.map((h) => (
+                <li key={h.id}>
+                  <Link href={`/clients/${id}/homes/${h.id}`} className="card block p-3 hover:bg-bg">
+                    <div className="font-semibold">{h.label} · {homeSizeLabel(h)}</div>
+                    <div className="text-sm text-muted">{[h.address_line, h.city, h.zip].filter(Boolean).join(", ") || "No address"}</div>
+                    {(h.access_method || h.access_code) && (
+                      <div className="text-sm">🔑 {[accessLabel(h.access_method), h.access_code].filter(Boolean).join(" · ")}</div>
+                    )}
+                    {h.pets_in_home && <div className="text-sm text-warn">🐾 {h.pets_in_home}</div>}
                   </Link>
                 </li>
               ))}
@@ -196,7 +182,7 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
                       <div className="font-medium">
                         {dayLabel(a.start_at, tz)} · {timeLabel(a.start_at, tz)}
                       </div>
-                      <div className="truncate text-sm text-muted">{a.pets}</div>
+                      <div className="truncate text-sm text-muted">{[a.service_name, FREQUENCY_LABEL[a.frequency]].filter(Boolean).join(" · ")}</div>
                     </div>
                     <div className="text-right text-sm">
                       <div>{money(a.total_cents)}</div>
@@ -236,8 +222,8 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
           <h2 className="section-label">Preference</h2>
           <dl className="card divide-y divide-line text-sm">
             <div className="flex justify-between px-4 py-3">
-              <dt className="text-muted">Preferred frequency</dt>
-              <dd className="font-semibold">{preferredDays ? `${Math.round(preferredDays / 7)} weeks` : "Not set (edit the pet)"}</dd>
+              <dt className="text-muted">Booked frequency</dt>
+              <dd className="font-semibold">{latest ? FREQUENCY_LABEL[latest.frequency] : "—"}</dd>
             </div>
             <div className="flex justify-between px-4 py-3">
               <dt className="text-muted">Actual frequency</dt>
@@ -260,7 +246,7 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
           <summary className="cursor-pointer font-semibold text-danger">Remove client</summary>
           <div className="mt-3 space-y-3 text-sm">
             <p>
-              This deletes {fullName(client)} for good, with {pets.length} pet{pets.length === 1 ? "" : "s"},{" "}
+              This deletes {fullName(client)} for good, with {homes.length} home{homes.length === 1 ? "" : "s"},{" "}
               {history.length} visit{history.length === 1 ? "" : "s"}
               {summary.paid + summary.tips > 0 ? ` and ${money(summary.paid + summary.tips)} in payments (they leave your reports)` : ""}.
               It can&apos;t be undone. To just hide them, use <strong>Inactive customer</strong> above.
