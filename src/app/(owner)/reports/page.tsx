@@ -92,8 +92,8 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <Tile label="Collected" value={money(r.collected + r.tips)} sub={r.tips ? `incl. ${money(r.tips)} tips` : "payments received"} strong />
           <Tile label="Expected" value={money(r.expected)} sub="services booked" />
-          <Tile label="Dogs groomed" value={String(r.dogs_done)} sub={`${r.pets} booked`} />
-          <Tile label="Appointments" value={String(r.appts)} sub={`${r.finished} finished`} />
+          <Tile label="Cleanings done" value={String(r.finished)} sub={`${r.appts} booked`} />
+          <Tile label="Cancelled" value={String(r.cancelled)} sub={`${r.no_show} no-show`} />
           <Tile label="Clients" value={String(r.clients)} sub={`${r.newClients} new`} />
           <Tile label="Average visit" value={money(avg)} sub="expected per visit" />
         </div>
@@ -140,14 +140,13 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                   <tr className="text-left text-xs uppercase tracking-wide text-muted">
                     <th className="px-4 py-2 font-semibold">{group}</th>
                     <th className="px-2 py-2 text-right font-semibold">Visits</th>
-                    <th className="px-2 py-2 text-right font-semibold">Dogs</th>
                     <th className="px-2 py-2 text-right font-semibold">Expected</th>
                     <th className="px-4 py-2 text-right font-semibold">Collected</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
                   {r.buckets.map((b) => (
-                    <tr key={b.bucket} title={`${bucketLabel(b.bucket, group)}: ${b.appts} visits, ${b.dogs} dogs, ${money(b.expected)} expected, ${money(b.collected)} collected`}>
+                    <tr key={b.bucket} title={`${bucketLabel(b.bucket, group)}: ${b.appts} visits, ${money(b.expected)} expected, ${money(b.collected)} collected`}>
                       <td className="px-4 py-2.5">
                         <div className="font-medium">{bucketLabel(b.bucket, group)}</div>
                         <div className="mt-1 h-1.5 rounded-full bg-bg" aria-hidden>
@@ -155,7 +154,6 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                         </div>
                       </td>
                       <td className="px-2 py-2.5 text-right tabular-nums">{b.appts}</td>
-                      <td className="px-2 py-2.5 text-right tabular-nums">{b.dogs}</td>
                       <td className="px-2 py-2.5 text-right tabular-nums">{money(b.expected)}</td>
                       <td className="px-4 py-2.5 text-right font-semibold tabular-nums">{money(b.collected)}</td>
                     </tr>
@@ -165,7 +163,6 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
                   <tr className="border-t border-line font-bold">
                     <td className="px-4 py-2.5">Total</td>
                     <td className="px-2 py-2.5 text-right tabular-nums">{r.buckets.reduce((s, b) => s + b.appts, 0)}</td>
-                    <td className="px-2 py-2.5 text-right tabular-nums">{r.buckets.reduce((s, b) => s + b.dogs, 0)}</td>
                     <td className="px-2 py-2.5 text-right tabular-nums">{money(r.buckets.reduce((s, b) => s + b.expected, 0))}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums">{money(r.buckets.reduce((s, b) => s + b.collected, 0))}</td>
                   </tr>

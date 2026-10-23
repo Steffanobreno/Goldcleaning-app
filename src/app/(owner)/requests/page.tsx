@@ -13,15 +13,19 @@ export default async function RequestsPage() {
   const staff = await requireStaff();
   const rows = await sql<
     { id: string; start_at: Date; client: string; phone: string; address_line: string | null; notes: string | null;
-      pets: string | null; total_cents: number; created_at: Date; new_client: boolean }[]
+      summary: string | null; total_cents: number; created_at: Date; new_client: boolean }[]
   >`
     select a.id, a.start_at, a.address_line, a.notes, a.created_at, trim(c.first_name || ' ' || c.last_name) as client, c.phone,
       (c.source = 'online' and c.created_at > a.created_at - interval '1 minute') as new_client,
-      (select string_agg(p.name || ' (' || coalesce((select string_agg(s.name, ', ') from appointment_services s
-                                                      where s.appointment_pet_id = ap.id), '') || ')', ' · ')
-         from appointment_pets ap join pets p on p.id = ap.pet_id where ap.appointment_id = a.id) as pets,
-      coalesce((select sum(s.price_cents) from appointment_pets ap join appointment_services s on s.appointment_pet_id = ap.id
-        where ap.appointment_id = a.id), 0)::int as total_cents
+      (select concat_ws(' · ', sv.name,
+                case a.frequency when 'weekly' then 'Weekly' when 'biweekly' then 'Every 2 weeks'
+                                 when 'every_4_weeks' then 'Every 4 weeks' else 'One-time' end,
+                case when h.bedrooms = 0 then 'Studio' else h.bedrooms || ' bd' end || ' / ' || h.full_baths || ' ba'
+                  || case when h.half_baths > 0 then ' / ' || h.half_baths || ' half' else '' end)
+         from appointment_homes ah join homes h on h.id = ah.home_id left join services sv on sv.id = a.service_id
+         where ah.appointment_id = a.id order by ah.created_at limit 1) as summary,
+      coalesce((select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+        where ah.appointment_id = a.id), 0)::int as total_cents
     from appointments a join clients c on c.id = a.client_id
     where a.business_id = ${staff.businessId} and a.status = 'requested' and a.start_at > now() -- past ones expired
     order by a.start_at`;
@@ -65,7 +69,7 @@ export default async function RequestsPage() {
               <p className="font-medium">
                 {dayLabel(r.start_at, tz)} · {timeLabel(r.start_at, tz)}
               </p>
-              <p className="text-sm text-muted">{r.pets}</p>
+              <p className="text-sm text-muted">{r.summary}</p>
               <p className="text-sm">{r.address_line}</p>
               <p className="text-sm">
                 {phoneLabel(r.phone)} · {money(r.total_cents)}
@@ -87,7 +91,7 @@ export default async function RequestsPage() {
           <Link href="/abandoned" className="card flex items-center justify-between gap-3 px-4 py-3 hover:bg-bg">
             <span>
               <span className="block font-semibold">{waiting} didn&apos;t finish booking online</span>
-              <span className="block text-sm text-muted">A quick call or text often gets the booking.</span>
+              <span className="block text-sm text-muted">A quick call or email often gets the booking.</span>
             </span>
             <span className="font-semibold text-brand">See →</span>
           </Link>

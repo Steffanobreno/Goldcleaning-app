@@ -18,7 +18,7 @@ import { PaymentForm } from "../../payment-form";
 
 export const metadata: Metadata = { title: "Invoice" };
 
-// The bill of one visit: check-in and check-out times, services by pet, discounts, service
+// The bill of one visit: check-in and check-out times, the price lines, discounts, service
 // charges or taxes, tips, what was paid and what is still due.
 
 export default async function CheckoutPage({ params }: PageProps<"/appointments/[id]/checkout">) {
@@ -47,13 +47,6 @@ export default async function CheckoutPage({ params }: PageProps<"/appointments/
   const balance = Math.max(invoice.total_cents - invoice.paid_cents, 0);
   const services = items.filter((i) => !["discount", "tax", "fee"].includes(i.kind));
   const extras = items.filter((i) => ["discount", "tax", "fee"].includes(i.kind));
-  // Services are saved as "Pet: service"; group them under each pet like on a receipt.
-  const byPet = new Map<string, typeof services>();
-  for (const s of services) {
-    const [pet, ...rest] = s.description.split(": ");
-    const key = rest.length ? pet : "";
-    byPet.set(key, [...(byPet.get(key) ?? []), { ...s, description: rest.length ? rest.join(": ") : s.description }]);
-  }
   const local = (d: Date | null) => (d ? formatInTimeZone(d, tz, "yyyy-MM-dd'T'HH:mm") : "");
   const stamp = (d: Date | null) => (d ? `${dayLabel(d, tz)} ${timeLabel(d, tz)}` : "—");
   const fees = invoice.tax_cents + extras.filter((e) => e.kind === "fee").reduce((s, e) => s + e.amount_cents, 0);
@@ -85,11 +78,10 @@ export default async function CheckoutPage({ params }: PageProps<"/appointments/
         </details>
 
         <section className="card divide-y divide-line">
-          {[...byPet.entries()].map(([pet, list]) => (
-            <div key={pet || "visit"} className="px-4 py-3">
-              {pet && <p className="mb-1 font-bold">{pet}</p>}
+          {services.length > 0 && (
+            <div className="px-4 py-3">
               <ul className="space-y-1 text-sm">
-                {list.map((item) => (
+                {services.map((item) => (
                   <li key={item.id} className="flex items-center gap-2">
                     <span className="flex-1">{item.description}</span>
                     <span className="tabular-nums">{money(item.amount_cents)}</span>
@@ -98,7 +90,7 @@ export default async function CheckoutPage({ params }: PageProps<"/appointments/
                 ))}
               </ul>
             </div>
-          ))}
+          )}
           {extras.length > 0 && (
             <ul className="space-y-1 px-4 py-3 text-sm">
               {extras.map((item) => (

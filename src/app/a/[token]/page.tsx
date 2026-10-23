@@ -6,7 +6,7 @@ import { longDayLabel, money, phoneLabel, timeLabel } from "@/lib/format";
 import { Button, ButtonLink, Card, Field, Input, Notice } from "@/components/ui";
 import { AgreementText } from "@/components/agreement-text";
 import { ClientShell, StepCard } from "@/components/client-shell";
-import { Calendar, Dog } from "@/components/icons";
+import { Calendar, House } from "@/components/icons";
 import { activeAgreement, currentSignature } from "@/lib/agreement";
 import { clientEvent } from "@/lib/client-calendar";
 import { cancelByTokenAction, confirmByTokenAction, requestRescheduleByTokenAction } from "./actions";
@@ -24,7 +24,7 @@ export default async function ClientAppointmentPage({ params, searchParams }: Pa
       start_at: Date;
       status: string;
       first_name: string;
-      pets: string | null;
+      summary: string | null;
       total_cents: number;
       can_cancel: boolean;
       upcoming: boolean;
@@ -37,10 +37,11 @@ export default async function ClientAppointmentPage({ params, searchParams }: Pa
     }[]
   >`
     select a.business_id, a.client_id, a.start_at, a.status, a.reschedule_requested_at, c.first_name, b.name as business, b.phone, b.timezone, b.website_url, b.cancellation_hours,
-      (select string_agg(p.name, ' & ' order by p.name) from appointment_pets ap join pets p on p.id = ap.pet_id
-        where ap.appointment_id = a.id) as pets,
-      coalesce((select sum(s.price_cents) from appointment_pets ap join appointment_services s on s.appointment_pet_id = ap.id
-        where ap.appointment_id = a.id), 0)::int as total_cents,
+      (select concat_ws(' · ', sv.name, case when h.bedrooms = 0 then 'Studio' else h.bedrooms || ' bd' end || ' / ' || h.full_baths || ' ba')
+        from appointment_homes ah join homes h on h.id = ah.home_id left join services sv on sv.id = a.service_id
+        where ah.appointment_id = a.id order by ah.created_at limit 1) as summary,
+      coalesce((select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+        where ah.appointment_id = a.id), 0)::int as total_cents,
       (a.start_at > now() + make_interval(hours => b.cancellation_hours)) as can_cancel,
       (a.start_at > now()) as upcoming
     from appointments a join clients c on c.id = a.client_id join businesses b on b.id = a.business_id
@@ -69,13 +70,13 @@ export default async function ClientAppointmentPage({ params, searchParams }: Pa
               <span className="block text-muted">Arriving around {timeLabel(a.start_at, tz)}</span>
             </span>
           </p>
-          {a.pets && (
+          {a.summary && (
             <p className="flex items-center gap-3">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-bg">
-                <Dog size={22} />
+                <House size={22} />
               </span>
               <span>
-                <span className="block font-bold">{a.pets}</span>
+                <span className="block font-bold">{a.summary}</span>
                 <span className="block text-sm text-muted">Estimated {money(a.total_cents)}</span>
               </span>
             </p>
@@ -83,9 +84,9 @@ export default async function ClientAppointmentPage({ params, searchParams }: Pa
         </div>
 
         {a.status === "requested" && (
-          <Notice kind="info">We received your request and will text you once it&apos;s confirmed.</Notice>
+          <Notice kind="info">We received your request and will email you once it&apos;s confirmed.</Notice>
         )}
-        {a.status === "confirmed" && <Notice kind="success">Confirmed. See you then! 🐾</Notice>}
+        {a.status === "confirmed" && <Notice kind="success">Confirmed. See you then! ✨</Notice>}
         {a.status === "cancelled" && <Notice kind="warn">This appointment is cancelled.</Notice>}
         {a.status === "completed" && <Notice kind="success">All done. Thank you!</Notice>}
         {a.status === "en_route" && <Notice kind="success">We&apos;re on our way to you! 🚐</Notice>}
@@ -134,7 +135,7 @@ export default async function ClientAppointmentPage({ params, searchParams }: Pa
           </form>
         )}
         {open && a.upcoming && (a.reschedule_requested_at ? (
-          <Notice kind="info">We got your request for a different time and will text you a new one.</Notice>
+          <Notice kind="info">We got your request for a different time and will get back to you with a new one.</Notice>
         ) : (
           <details className="rounded-[var(--radius-card)] border border-line bg-surface p-4">
             <summary className="cursor-pointer text-center font-semibold text-brand">I need a different time</summary>
@@ -156,8 +157,8 @@ export default async function ClientAppointmentPage({ params, searchParams }: Pa
                 <p className="text-sm text-muted">Cancelling now is free. Your time will be given to someone else.</p>
               ) : (
                 <Notice kind="warn">
-                  Your visit is less than {a.cancellation_hours} hours away, so a late cancellation fee of 50% of the service
-                  price applies (about {money(Math.round(a.total_cents / 2))}).
+                  Your cleaning is less than {a.cancellation_hours} hours away, so this is a late cancellation and a fee may
+                  apply. If something came up, please call or text us at {phone}.
                 </Notice>
               )}
               <Button type="submit" kind="danger" className="w-full">

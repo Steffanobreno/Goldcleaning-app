@@ -33,7 +33,7 @@ export type EmailDetails = {
   badge: string | null; // e.g. "Waiting for confirmation"
   when: string;
   address: string | null;
-  pets: { name: string; services: { name: string; price: string }[] }[];
+  lines: { name: string; price: string }[]; // the price lines: service, extra rooms, extras
   total: string; // "" when no prices are set
   link: string | null;
   businessPhone: string | null;
@@ -49,17 +49,16 @@ const calButton = (href: string, label: string) =>
   `<a href="${href}" style="display:inline-block;margin:4px;border:2px solid #0a84cc;color:#0a84cc;text-decoration:none;font-weight:700;font-size:14px;padding:10px 16px;border-radius:999px">📅 ${label}</a>`;
 
 function detailsHtml(d: EmailDetails) {
-  const pets = d.pets
-    .map((p) => `<strong>${escape(p.name)}</strong><br>${p.services
-      .map((s) => `<span style="color:#5d6b80">${escape(s.name)}</span> &nbsp;${escape(s.price)}`).join("<br>")}`)
-    .join("<br><br>");
+  const lines = d.lines
+    .map((l) => `<span style="color:#5d6b80">${escape(l.name)}</span> &nbsp;${escape(l.price)}`)
+    .join("<br>");
   return `<div style="margin-top:24px;border:1px solid #e1e6ee;border-radius:16px;padding:18px 18px 8px">
 <p style="margin:0 0 4px;font-size:20px;font-weight:800">${escape(d.heading)}</p>
 ${d.badge ? `<p style="margin:0 0 10px"><span style="display:inline-block;background:#fff4de;color:#9a5b00;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px">${escape(d.badge)}</span></p>` : ""}
 <table role="presentation" style="width:100%;border-collapse:collapse">
 ${row("When", `<strong>${escape(d.when)}</strong>`)}
 ${d.address ? row("Where", escape(d.address)) : ""}
-${pets ? row("Pets", pets) : ""}
+${lines ? row("Cleaning", lines) : ""}
 ${d.total ? row("Estimated", `<strong>${escape(d.total)}</strong>`) : ""}
 </table></div>
 ${d.link ? `<p style="margin:24px 0 0;text-align:center"><a href="${d.link}" style="display:inline-block;background:#0a84cc;color:#ffffff;text-decoration:none;font-weight:700;padding:14px 28px;border-radius:999px">${d.badge === "Waiting for confirmation" ? "See my request" : "See, confirm or cancel"}</a></p>` : ""}
@@ -71,7 +70,7 @@ ${d.businessPhone ? `<p style="margin:8px 0 0;color:#5d6b80;font-size:13px">Ques
 
 /**
  * The Woofers email: logo on top, the message, then (for appointment emails) a card with
- * the date, address, pets and services, total and a button to see, confirm or cancel; the
+ * the date, address, price lines, total and a button to see, confirm or cancel; the
  * business name at the bottom. Inline styles only, since email apps ignore style sheets.
  */
 export function emailHtml(text: string, fromName: string, details?: EmailDetails | null) {

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { requireStaff } from "@/lib/auth";
 import { sql } from "@/lib/db";
-import { Card, Field, Input, Page, PageHeader } from "@/components/ui";
+import { Card, Field, Input, Page, PageHeader, Textarea } from "@/components/ui";
+import { WEEKDAYS } from "@/lib/format";
 import { CopyField } from "@/components/copy-field";
 import { saveBookingSettingsAction } from "../actions";
 import { SimpleForm } from "../forms";
@@ -11,13 +12,15 @@ export const metadata: Metadata = { title: "Online booking" };
 export default async function BookingSettingsPage() {
   const staff = await requireStaff();
   const [b] = await sql`
-    select online_booking_enabled, buffer_minutes, max_cluster_miles::float8 as max_cluster_miles,
-           service_radius_miles::float8 as service_radius_miles, min_notice_hours, booking_days_ahead,
-           cancellation_hours, start_zip, slot_minutes
+    select online_booking_enabled, base_duration_min, large_home_bedrooms, large_home_extra_min, service_cities,
+           min_notice_hours, booking_days_ahead, cancellation_hours
     from businesses where id = ${staff.businessId}`;
+  const slots = await sql<{ weekday: number; time: string; label: string }[]>`
+    select weekday, to_char(start_time, 'HH24:MI') as time, label from booking_slots
+    where business_id = ${staff.businessId} order by weekday, start_time`;
   const appUrl = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const bookUrl = `${appUrl}/book`;
-  const embed = `<iframe src="${bookUrl}" title="Book a visit" style="width:100%;min-height:1400px;border:0"></iframe>`;
+  const embed = `<iframe src="${bookUrl}" title="Book a cleaning" style="width:100%;min-height:1400px;border:0"></iframe>`;
   return (
     <>
       <PageHeader title="Online booking" back="/settings" />
@@ -34,20 +37,14 @@ export default async function BookingSettingsPage() {
               Clients can request appointments online
             </label>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Max miles between a day's stops" hint="New requests must be this close to the other visits that day.">
-                <Input name="max_cluster_miles" inputMode="decimal" defaultValue={b.max_cluster_miles} />
+              <Field label="Cleaning length (min)" hint="For most homes.">
+                <Input name="base_duration_min" inputMode="numeric" defaultValue={b.base_duration_min} />
               </Field>
-              <Field label="Driving time between visits (min)" hint="Kept free before and after each visit.">
-                <Input name="buffer_minutes" inputMode="numeric" defaultValue={b.buffer_minutes} />
+              <Field label="Homes with more than (bedrooms)">
+                <Input name="large_home_bedrooms" inputMode="numeric" defaultValue={b.large_home_bedrooms} />
               </Field>
-              <Field label="Van's home ZIP" hint="Private. Used to check the service area.">
-                <Input name="start_zip" inputMode="numeric" maxLength={5} defaultValue={b.start_zip ?? ""} />
-              </Field>
-              <Field label="Service area (miles from home)">
-                <Input name="service_radius_miles" inputMode="decimal" defaultValue={b.service_radius_miles} />
-              </Field>
-              <Field label="Start times every (min)" hint="120 = 7, 9, 11… After a visit ends, times restart from there.">
-                <Input name="slot_minutes" inputMode="numeric" defaultValue={b.slot_minutes} />
+              <Field label="…take extra (min)">
+                <Input name="large_home_extra_min" inputMode="numeric" defaultValue={b.large_home_extra_min} />
               </Field>
               <Field label="Minimum notice (hours)">
                 <Input name="min_notice_hours" inputMode="numeric" defaultValue={b.min_notice_hours} />
@@ -59,7 +56,18 @@ export default async function BookingSettingsPage() {
                 <Input name="cancellation_hours" inputMode="numeric" defaultValue={b.cancellation_hours} />
               </Field>
             </div>
+            <Field label="Cities we serve" hint="One per line. A ZIP is accepted when its city is on this list.">
+              <Textarea name="service_cities" rows={8} defaultValue={(b.service_cities as string[]).join("\n")} />
+            </Field>
           </SimpleForm>
+        </Card>
+        <Card className="space-y-2">
+          <h2 className="font-bold">Start times clients can pick</h2>
+          <ul className="text-sm">
+            {slots.map((x) => (
+              <li key={`${x.weekday}-${x.time}`}>{WEEKDAYS[x.weekday]} · {x.time} ({x.label})</li>
+            ))}
+          </ul>
         </Card>
         <p className="text-center text-xs text-muted">
           Requests show up in Today and in Requests. They hold the time until you accept or decline.

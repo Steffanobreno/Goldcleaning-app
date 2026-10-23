@@ -30,10 +30,10 @@ export default async function EmailPreviewPage({ searchParams }: PageProps<"/set
   const [t] = await sql`select body, email_subject from message_templates where business_id = ${staff.businessId} and trigger = ${trigger}`;
   const [latest] = await sql`
     select a.id, a.start_at, a.public_token, c.first_name,
-      (select string_agg(p.name, ' & ') from appointment_pets ap join pets p on p.id = ap.pet_id where ap.appointment_id = a.id) as pets
+      (select sv.name from services sv where sv.id = a.service_id) as service
     from appointments a join clients c on c.id = a.client_id
     where a.business_id = ${staff.businessId}
-      and exists (select 1 from appointment_pets ap join appointment_services s on s.appointment_pet_id = ap.id where ap.appointment_id = a.id)
+      and exists (select 1 from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id where ah.appointment_id = a.id)
     order by (a.source = 'online') desc, a.created_at desc limit 1`;
   const appUrl = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const fmt = (d: Date, o: Intl.DateTimeFormatOptions) => d.toLocaleString("en-US", { timeZone: staff.timezone, ...o });
@@ -42,7 +42,7 @@ export default async function EmailPreviewPage({ searchParams }: PageProps<"/set
     business: b.name,
     business_phone: phoneLabel(b.phone),
     client: latest?.first_name ?? "Ana",
-    pet: latest?.pets ?? "Luna",
+    service: latest?.service ?? "Regular Clean",
     date: fmt(start, { weekday: "short", month: "short", day: "numeric" }),
     time: fmt(start, { hour: "numeric", minute: "2-digit" }),
     link: `${appUrl}/a/${latest?.public_token ?? "0".repeat(24)}`,
@@ -53,9 +53,9 @@ export default async function EmailPreviewPage({ searchParams }: PageProps<"/set
   const sample: EmailDetails = {
     heading: "Your request", badge: "Waiting for confirmation",
     when: `${fmt(start, { weekday: "long", month: "long", day: "numeric" })} · ${vars.time}`,
-    address: "1 Main St, San Mateo, CA", pets: [{ name: "Luna", services: [{ name: "Bath - Small (12\" or less)", price: "$99" }] }],
-    total: "$99", link: vars.link, businessPhone: vars.business_phone || null,
-    policy: "Free cancellation up to 48 hours before the visit. After that, 50% of the service price applies.",
+    address: "1 Main St, San Mateo, CA", lines: [{ name: "Regular Clean · Every 2 weeks", price: "$163.00" }, { name: "Extra bedroom × 2", price: "$40.00" }],
+    total: "$203.00", link: vars.link, businessPhone: vars.business_phone || null,
+    policy: "Free cancellation up to 48 hours before the visit. After that, a late cancellation fee may apply.",
     calendar: ["booked", "confirmed", "reminder"].includes(trigger) ? { apple: "#", google: "#", ics: "" } : null,
   };
   const details = latest ? await emailDetails(latest.id, trigger) : ["rebook", "review_request"].includes(trigger) ? null : sample;
@@ -83,7 +83,7 @@ export default async function EmailPreviewPage({ searchParams }: PageProps<"/set
         <iframe title="Email preview" srcDoc={emailHtml(text, b.name, details)} className="h-[760px] w-full rounded-[var(--radius-card)] border border-line bg-white" />
         <Notice kind="info">
           {latest ? "Filled in with your latest visit. " : "Filled in with a made-up visit. "}
-          To change the words, edit the message in Texts and email; the card with the date, pets and price is added by the app.
+          To change the words, edit the message in Texts and email; the card with the date, cleaning and price is added by the app.
         </Notice>
       </Page>
     </>

@@ -1,7 +1,7 @@
-// Reads the client export of the old app (one row per client, pets as "Name(Breed),Name(Breed)").
+// Reads a client list (one row per client): the columns this app exports, which also fit most
+// booking apps' exports. Optional "Bedrooms", "Bathrooms" and "Half baths" give the home's size.
 // Pure parsing, no database, so the import page and the command-line script share it.
 
-export type ImportedPet = { name: string; breed: string | null };
 export type ImportedClient = {
   row: number;
   firstName: string;
@@ -16,8 +16,7 @@ export type ImportedClient = {
   lng: number | null;
   notes: string[];
   marketing: boolean;
-  pets: ImportedPet[];
-  frequencyDays: number | null;
+  home: { bedrooms: number; fullBaths: number; halfBaths: number };
   lastService: { date: string; start: string } | null; // local business time
   next: { date: string; start: string; end: string } | null; // local business time
   upcomingCount: number;
@@ -61,32 +60,6 @@ export function parseCsv(text: string): string[][] {
 // The export pads values with tabs and non-breaking spaces.
 const clean = (v: string | undefined) => (v ?? "").replace(/ /g, " ").replace(/\s+/g, " ").trim();
 
-/** "Teddy(Miniature Poodle),Jax(Labradoodle (h))" → pets; commas inside parentheses are kept. */
-export function parsePets(text: string): ImportedPet[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let cur = "";
-  for (const ch of text) {
-    if (ch === "(") depth++;
-    if (ch === ")") depth = Math.max(0, depth - 1);
-    if (ch === "," && depth === 0) {
-      parts.push(cur);
-      cur = "";
-    } else cur += ch;
-  }
-  parts.push(cur);
-  return parts
-    .map((p) => clean(p))
-    .filter(Boolean)
-    .map((p) => {
-      const open = p.indexOf("(");
-      if (open < 0) return { name: p, breed: null };
-      const name = clean(p.slice(0, open));
-      const breed = clean(p.slice(open + 1, p.endsWith(")") ? -1 : undefined));
-      return { name: name || p, breed: breed || null };
-    });
-}
-
 /** "70 Peninsula Rd, Belvedere, CA, US, 94920" → parts. */
 export function parseAddress(text: string) {
   const parts = clean(text).split(",").map((p) => p.trim()).filter(Boolean);
@@ -123,7 +96,9 @@ export function parseClientsCsv(text: string) {
     email: col("email"),
     phone: col("primary contact", "phone", "mobile"),
     address: col("address"),
-    pets: col("pet(breed)", "pets"),
+    bedrooms: col("bedrooms"),
+    fullBaths: col("bathrooms", "full baths"),
+    halfBaths: col("half baths"),
     sales: col("total sales"),
     lastService: col("last service"),
     next: col("next service"),
@@ -131,7 +106,6 @@ export function parseClientsCsv(text: string) {
     marketing: col("has subscribed marketing email"),
     upcoming: col("upcoming booking number"),
     tags: col("tags"),
-    frequency: col("preferred frequency (days)"),
     latlng: col("latitude, longitude of the address"),
   };
   if (idx.first < 0 || idx.phone < 0) {
@@ -153,7 +127,10 @@ export function parseClientsCsv(text: string) {
 
     const [lat, lng] = get(idx.latlng).split(",").map((x) => Number(x.trim()));
     const sales = Number(get(idx.sales).replace(/[$,]/g, ""));
-    const freq = Number(get(idx.frequency));
+    const count = (i: number, min: number, max: number, dflt: number) => {
+      const n = Number(get(i));
+      return get(i) !== "" && Number.isInteger(n) && n >= min && n <= max ? n : dflt;
+    };
     const last = parseSlot(get(idx.lastService));
     const notes = [get(idx.notes), get(idx.tags) && `Tags: ${get(idx.tags)}`].filter(Boolean);
     clients.push({
@@ -167,8 +144,7 @@ export function parseClientsCsv(text: string) {
       lng: Number.isFinite(lng) && lng !== 0 ? lng : null,
       notes,
       marketing: /^yes$/i.test(get(idx.marketing)),
-      pets: parsePets(get(idx.pets)),
-      frequencyDays: Number.isInteger(freq) && freq >= 7 && freq <= 365 ? freq : null,
+      home: { bedrooms: count(idx.bedrooms, 0, 7, 1), fullBaths: count(idx.fullBaths, 1, 7, 1), halfBaths: count(idx.halfBaths, 0, 7, 0) },
       lastService: last ? { date: last.date, start: last.start } : null,
       next: parseSlot(get(idx.next)),
       upcomingCount: Number(get(idx.upcoming)) || 0,

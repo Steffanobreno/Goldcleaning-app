@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireStaff } from "@/lib/auth";
 import { sql } from "@/lib/db";
-import { SIZES } from "@/lib/format";
 import { getDraft } from "@/lib/data/abandoned";
 
 /** Hides an abandoned booking from the list (not interested, a test, a duplicate...). */
@@ -22,25 +21,25 @@ export async function markContactedAction(id: string) {
   revalidatePath("/abandoned");
 }
 
-/** Makes a client (with their pets) from what they typed, then opens the booking form. */
+/** Makes a client (with their home) from what they typed, then opens the booking form. */
 export async function addClientFromDraftAction(id: string) {
   const staff = await requireStaff();
   const d = await getDraft(staff, id);
   if (!d) redirect("/abandoned");
   const [existing] = await sql`select id from clients where business_id = ${staff.businessId} and phone = ${d.phone}`;
   if (existing) redirect(`/appointments/new?client=${existing.id}`);
-  const sizes = SIZES.map((x) => x.value as string);
   const clientId = await sql.begin(async (tx) => {
     const [c] = await tx`
       insert into clients (business_id, first_name, last_name, phone, email, address_line, city, state, zip, source)
       values (${staff.businessId}, ${d.first_name ?? "New client"}, ${d.last_name ?? ""}, ${d.phone}, ${d.email},
               ${d.address_line}, ${d.city}, 'CA', ${d.zip}, 'online')
       returning id`;
-    for (const p of d.pet_details ?? []) {
-      if (!p.name) continue;
-      await tx`insert into pets (client_id, name, breed, size_class)
-               values (${c.id}, ${p.name}, ${p.breed || null}, ${sizes.includes(p.size) ? p.size : null})`;
-    }
+    const h = d.details;
+    const clamp = (n: unknown, min: number, max: number, dflt: number) =>
+      Number.isInteger(n) && (n as number) >= min && (n as number) <= max ? (n as number) : dflt;
+    await tx`insert into homes (client_id, address_line, city, state, zip, bedrooms, full_baths, half_baths)
+             values (${c.id}, ${d.address_line}, ${d.city}, 'CA', ${d.zip}, ${clamp(h?.bedrooms, 0, 7, 1)},
+                     ${clamp(h?.fullBaths, 1, 7, 1)}, ${clamp(h?.halfBaths, 0, 7, 0)})`;
     await tx`update booking_drafts set client_id = ${c.id}, contacted_at = coalesce(contacted_at, now()) where id = ${id}`;
     return c.id as string;
   });

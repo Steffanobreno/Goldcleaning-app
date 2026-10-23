@@ -3,7 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireStaff } from "@/lib/auth";
 import { getDraft, STEP_NAMES } from "@/lib/data/abandoned";
-import { dayLabel, money, phoneLabel, sizeLabel, timeLabel } from "@/lib/format";
+import { dayLabel, money, phoneLabel, timeLabel } from "@/lib/format";
+import { homeSizeLabel } from "@/lib/home-options";
 import { Card, Page, PageHeader } from "@/components/ui";
 import { addClientFromDraftAction, deleteDraftAction } from "../actions";
 import { ContactButtons } from "../contact-buttons";
@@ -37,16 +38,15 @@ export default async function AbandonedDraftPage({ params }: PageProps<"/abandon
             {row("Time picked", d.chosen_start ? when(d.chosen_start) : null)}
             {row("Last contact", d.contacted_at ? `${when(d.contacted_at)} (you)` : d.reminded_at ? `${when(d.reminded_at)} (recovery message)` : null)}
             {d.status === "recovered" && row("Result", <span className="text-success">Booked{d.revenue_cents ? ` · ${money(d.revenue_cents)}` : ""}{d.booked_id && <> · <Link href={`/appointments/${d.booked_id}`} className="underline">see visit</Link></>}</span>)}
-            {(d.pet_details ?? []).map((p, i) => (
-              <div key={i} className="mt-2 border-t border-dashed border-line pt-2">
-                {row("Pet", p.name)}
-                {row("Breed", p.breed)}
-                {row("Size", p.size ? sizeLabel(p.size) : null)}
-                {row("Service", p.service)}
-                {row("Add-ons", p.addons.join(", "))}
+            {d.details && (
+              <div className="mt-2 border-t border-dashed border-line pt-2">
+                {row("Service", [d.details.service, d.details.frequency].filter(Boolean).join(" · "))}
+                {row("Home", homeSizeLabel({ bedrooms: d.details.bedrooms, full_baths: d.details.fullBaths, half_baths: d.details.halfBaths }))}
+                {row("Extras", d.details.extras.join(", "))}
+                {row("Total shown", d.details.totalCents ? money(d.details.totalCents) : null)}
               </div>
-            ))}
-            {!d.pet_details?.length && d.pets && row("Pets", d.pets)}
+            )}
+            {!d.details && d.summary && row("Picked", d.summary)}
           </Card>
         </section>
 

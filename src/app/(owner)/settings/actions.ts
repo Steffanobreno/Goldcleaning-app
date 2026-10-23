@@ -111,27 +111,25 @@ export async function saveBusinessAction(_: FormState, form: FormData): Promise<
 export async function saveBookingSettingsAction(_: FormState, form: FormData): Promise<FormState> {
   const staff = await requireStaff();
   const num = (k: string) => Number(String(form.get(k) ?? "").trim());
-  const buffer = num("buffer_minutes");
-  const miles = num("max_cluster_miles");
-  const radius = num("service_radius_miles");
+  const base = num("base_duration_min");
+  const bedrooms = num("large_home_bedrooms");
+  const extra = num("large_home_extra_min");
   const notice = num("min_notice_hours");
   const ahead = num("booking_days_ahead");
   const cancelHours = num("cancellation_hours");
-  const slot = num("slot_minutes");
-  const startZip = String(form.get("start_zip") ?? "").trim();
-  if (![buffer, miles, radius, notice, ahead, cancelHours, slot].every(Number.isFinite)) return { error: "Use numbers only." };
-  if (buffer < 0 || buffer > 180) return { error: "Driving time between visits: 0 to 180 minutes." };
-  if (miles < 1 || miles > 200 || radius < 1 || radius > 300) return { error: "Distances must be between 1 and 200 miles." };
+  const cities = [...new Set(String(form.get("service_cities") ?? "").split(/[\n,]/).map((c) => c.trim()).filter(Boolean))];
+  if (![base, bedrooms, extra, notice, ahead, cancelHours].every(Number.isInteger)) return { error: "Use whole numbers only." };
+  if (base < 30 || base > 600) return { error: "Cleaning length: 30 to 600 minutes." };
+  if (bedrooms < 0 || bedrooms > 7 || extra < 0 || extra > 480) return { error: "Larger homes: 0 to 7 bedrooms, 0 to 480 extra minutes." };
   if (notice < 0 || notice > 336) return { error: "Notice: 0 to 336 hours." };
   if (ahead < 1 || ahead > 180) return { error: "Clients can book 1 to 180 days ahead." };
   if (cancelHours < 0 || cancelHours > 168) return { error: "Cancellation window: 0 to 168 hours." };
-  if (slot < 15 || slot > 240) return { error: "Start times: every 15 to 240 minutes." };
-  if (startZip && !/^\d{5}$/.test(startZip)) return { error: "The van's ZIP code has 5 digits." };
+  if (cities.length === 0) return { error: "List at least one city you serve." };
   await sql`
     update businesses set online_booking_enabled = ${form.get("online_booking_enabled") === "on"},
-      buffer_minutes = ${buffer}, max_cluster_miles = ${miles}, service_radius_miles = ${radius},
+      base_duration_min = ${base}, large_home_bedrooms = ${bedrooms}, large_home_extra_min = ${extra},
       min_notice_hours = ${notice}, booking_days_ahead = ${ahead}, cancellation_hours = ${cancelHours},
-      slot_minutes = ${slot}, start_zip = ${startZip || null}
+      service_cities = ${cities}
     where id = ${staff.businessId}`;
   revalidatePath("/settings/booking");
   return { saved: true };

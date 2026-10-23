@@ -5,7 +5,7 @@ import { isExclusionViolation, sql } from "@/lib/db";
 import { hm, isYmd, ymd, zonedToUtc } from "@/lib/format";
 import { MAX_VISITS, repeatDates, type RepeatRule } from "@/lib/repeat";
 
-// Repeating a visit: books copies of it (same time, pets and services) on every date of the
+// Repeating a visit: books copies of it (same time, home and price lines) on every date of the
 // rule. Changing the rule replaces the later copies that are still just booked; visits the
 // client confirmed, checked in or paid are left alone. A date that is taken is skipped and
 // reported, so the owner can book that one at another time.
@@ -51,8 +51,10 @@ export async function saveRepeatAction(appointmentId: string, _: RepeatState, fo
   const tz = staff.timezone;
 
   const [a] = await sql<{ id: string; client_id: string; staff_id: string; start_at: Date; end_at: Date; status: string; series_id: string | null;
-                         address_line: string | null; zip: string | null; lat: number | null; lng: number | null; notes: string | null }[]>`
-    select id, client_id, staff_id, start_at, end_at, status, series_id, address_line, zip, lat, lng, notes from appointments
+                         address_line: string | null; zip: string | null; lat: number | null; lng: number | null; notes: string | null;
+                         service_id: string | null; frequency: string }[]>`
+    select id, client_id, staff_id, start_at, end_at, status, series_id, address_line, zip, lat, lng, notes, service_id, frequency
+    from appointments
     where id = ${appointmentId} and business_id = ${staff.businessId}`;
   if (!a) return { error: "Appointment not found." };
   if (!LIVE.includes(a.status) || a.status === "requested") return { error: "Accept the visit before repeating it." };
@@ -80,12 +82,13 @@ export async function saveRepeatAction(appointmentId: string, _: RepeatState, fo
       with ordinality as r(s, e, i)`;
   const reasonAt = new Map(busy.map((b) => [b.i - 1, b.visit ?? b.block]));
 
-  const pets = await sql<{ id: string; pet_id: string; services: { service_id: string | null; name: string; price_cents: number; duration_min: number }[] }[]>`
-    select ap.id, ap.pet_id,
-      coalesce((select json_agg(json_build_object('service_id', s.service_id, 'name', s.name, 'price_cents', s.price_cents,
-                                                  'duration_min', s.duration_min) order by s.created_at)
-                from appointment_services s where s.appointment_pet_id = ap.id), '[]'::json) as services
-    from appointment_pets ap where ap.appointment_id = ${a.id}`;
+  const homes = await sql<{ home_id: string; lines: { service_id: string | null; kind: string; name: string; qty: number;
+                                                   price_cents: number; duration_min: number }[] }[]>`
+    select ah.home_id,
+      coalesce((select json_agg(json_build_object('service_id', l.service_id, 'kind', l.kind, 'name', l.name, 'qty', l.qty,
+                                                  'price_cents', l.price_cents, 'duration_min', l.duration_min) order by l.created_at, l.id)
+                from appointment_lines l where l.appointment_home_id = ah.id), '[]'::json) as lines
+    from appointment_homes ah where ah.appointment_id = ${a.id}`;
 
   const skipped: { date: string; reason: string }[] = [];
   let created = 0;
@@ -106,15 +109,15 @@ export async function saveRepeatAction(appointmentId: string, _: RepeatState, fo
         await tx.savepoint(async (sp) => {
           const [copy] = await sp`
             insert into appointments (business_id, client_id, staff_id, series_id, start_at, end_at, status, source,
-                                      address_line, zip, lat, lng, notes)
+                                      address_line, zip, lat, lng, notes, service_id, frequency)
             values (${staff.businessId}, ${a.client_id}, ${a.staff_id}, ${series.id}, ${r.s}, ${r.e}, 'unconfirmed', 'manual',
-                    ${a.address_line}, ${a.zip}, ${a.lat}, ${a.lng}, ${a.notes})
+                    ${a.address_line}, ${a.zip}, ${a.lat}, ${a.lng}, ${a.notes}, ${a.service_id}, ${a.frequency})
             returning id`;
-          for (const p of pets) {
-            const [ap] = await sp`insert into appointment_pets (appointment_id, pet_id) values (${copy.id}, ${p.pet_id}) returning id`;
-            for (const s of p.services) {
-              await sp`insert into appointment_services (appointment_pet_id, service_id, name, price_cents, duration_min)
-                       values (${ap.id}, ${s.service_id}, ${s.name}, ${s.price_cents}, ${s.duration_min})`;
+          for (const h of homes) {
+            const [ah] = await sp`insert into appointment_homes (appointment_id, home_id) values (${copy.id}, ${h.home_id}) returning id`;
+            for (const l of h.lines) {
+              await sp`insert into appointment_lines (appointment_home_id, service_id, kind, name, qty, price_cents, duration_min)
+                       values (${ah.id}, ${l.service_id}, ${l.kind}, ${l.name}, ${l.qty}, ${l.price_cents}, ${l.duration_min})`;
             }
           }
         });

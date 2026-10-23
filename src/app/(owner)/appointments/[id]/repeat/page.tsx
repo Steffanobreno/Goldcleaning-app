@@ -14,14 +14,13 @@ export default async function RepeatPage({ params }: PageProps<"/appointments/[i
   const staff = await requireStaff();
   const { id } = await params;
   const [a] = await sql<{ client_id: string; start_at: Date; series_id: string | null; freq: RepeatRule["freq"] | null; interval_n: number | null;
-                         occurrences: number | null; ends_on: string | null; pet_days: number | null }[]>`
-    select a.client_id, a.start_at, a.series_id, s.freq, s.interval_n, s.occurrences, to_char(s.ends_on, 'YYYY-MM-DD') as ends_on,
-      (select min(p.rebook_every_days) from appointment_pets ap join pets p on p.id = ap.pet_id where ap.appointment_id = a.id) as pet_days
+                         occurrences: number | null; ends_on: string | null; frequency: string }[]>`
+    select a.client_id, a.start_at, a.series_id, s.freq, s.interval_n, s.occurrences, to_char(s.ends_on, 'YYYY-MM-DD') as ends_on, a.frequency
     from appointments a left join appointment_series s on s.id = a.series_id
     where a.id = ${id} and a.business_id = ${staff.businessId}`;
   if (!a) notFound();
-  // A new repeat starts from the pet's usual frequency (in weeks) when we know it.
-  const weeks = a.pet_days ? Math.min(Math.max(Math.round(a.pet_days / 7), 1), 12) : 4;
+  // A new repeat starts from the frequency the client booked (every 4 weeks for a one-time cleaning).
+  const weeks = { weekly: 1, biweekly: 2, every_4_weeks: 4 }[a.frequency] ?? 4;
   const initial: RepeatRule = a.freq
     ? { freq: a.freq, every: a.interval_n ?? 1, count: a.occurrences, until: a.ends_on }
     : { freq: "week", every: weeks, count: 10, until: null };

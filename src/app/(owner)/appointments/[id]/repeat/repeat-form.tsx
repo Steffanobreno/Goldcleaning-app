@@ -85,7 +85,7 @@ export function RepeatForm({ appointmentId, clientId, first, time, initial, repe
               </button>
             ))}
           </div>
-          <p className="text-sm text-muted">Starts with this visit, {fmt(first)} at {time}. Same pets, services and time.</p>
+          <p className="text-sm text-muted">Starts with this visit, {fmt(first)} at {time}. Same home, prices and time.</p>
         </Card>
         <Card className="space-y-3">
           <Field label="Ends">

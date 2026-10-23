@@ -29,7 +29,6 @@ export function MonthCalendar({
   onSelect: (date: string) => void;
 }) {
   const open = new Map(days.map((d) => [d.date, d.times.length]));
-  const near = new Set(days.filter((d) => d.near).map((d) => d.date)); // the van is already close by
   const first = days[0]?.date ?? today;
   const last = days.at(-1)?.date ?? today;
   const [month, setMonth] = useState(monthOf(selected ?? first));
@@ -73,7 +72,7 @@ export function MonthCalendar({
                 type="button"
                 disabled={!n}
                 aria-pressed={isSelected}
-                aria-label={n ? `${label}, ${n} open ${n === 1 ? "time" : "times"}${near.has(date) ? ", we're in your area" : ""}` : `${label}, no open times`}
+                aria-label={n ? `${label}, ${n} open ${n === 1 ? "time" : "times"}` : `${label}, no open times`}
                 onClick={() => onSelect(date)}
                 className={`flex h-12 w-12 flex-col items-center justify-center rounded-full text-[15px] font-semibold transition-colors ${
                   isSelected
@@ -81,7 +80,7 @@ export function MonthCalendar({
                     : n
                       ? "border border-line hover:border-brand"
                       : "text-muted/50"
-                } ${date === today && !isSelected ? "ring-2 ring-sky/40" : ""} ${near.has(date) && !isSelected ? "!border-2 !border-success" : ""}`}
+                } ${date === today && !isSelected ? "ring-2 ring-sky/40" : ""}`}
               >
                 {Number(date.slice(8))}
                 <span className="mt-0.5 flex h-1.5 gap-0.5" aria-hidden>

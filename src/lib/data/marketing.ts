@@ -39,7 +39,7 @@ export function audience(businessId: string, f: Filters) {
   return sql<AudienceRow[]>`
     select * from (
       select c.id, c.first_name, c.last_name, lower(trim(c.email)) as email, c.city,
-        (select string_agg(p.name, ' & ' order by p.name) from pets p where p.client_id = c.id and p.deceased_at is null) as pet_name,
+        null::text as pet_name,
         greatest((select max(a.start_at) from appointments a where a.client_id = c.id and a.status = 'completed'),
                  c.imported_last_service_at) as last_visit
       from clients c
@@ -48,7 +48,6 @@ export function audience(businessId: string, f: Filters) {
         ${f.upcoming === "none" ? sql`and not exists (select 1 from appointments a where a.client_id = c.id and a.start_at > now() and a.status = any(${live}))` : sql``}
         ${f.upcoming === "has" ? sql`and exists (select 1 from appointments a where a.client_id = c.id and a.start_at > now() and a.status = any(${live}))` : sql``}
         ${f.cities.length ? sql`and lower(trim(c.city)) = any(${f.cities.map((x) => x.toLowerCase())})` : sql``}
-        ${f.breed ? sql`and exists (select 1 from pets p where p.client_id = c.id and p.breed ilike ${"%" + f.breed + "%"})` : sql``}
     ) x
     where true
       ${f.lastVisit === "over" ? sql`and x.last_visit < now() - make_interval(days => ${f.days})` : sql``}
@@ -120,12 +119,12 @@ export async function sendCampaignBatch(campaignId: string, max = 8) {
         select id from campaign_recipients where campaign_id = ${c.id} and status = 'queued'
         order by email limit ${room} for update skip locked)
       returning r.id, r.email, cl.marketing_token as token, cl.first_name,
-        (select string_agg(p.name, ' & ' order by p.name) from pets p where p.client_id = cl.id and p.deceased_at is null) as pet_name`;
+        null::text as pet_name`;
     const content: CampaignContent = { preheader: c.preheader, banner: c.banner, headline: c.headline, body: c.body, buttonLabel: c.button_label, buttonUrl: c.button_url };
     // The button goes straight to the booking page: one less click than the website.
     const booking = `${appUrl()}/book`;
     const mails = batch.map((r) => {
-      const vars = { first_name: r.first_name, pet_name: r.pet_name ?? "your pup", business: c.name, booking_link: booking };
+      const vars = { first_name: r.first_name, pet_name: r.pet_name ?? "your home", business: c.name, booking_link: booking };
       const unsubscribeUrl = `${appUrl()}/u/${r.token}`;
       return {
         to: r.email,

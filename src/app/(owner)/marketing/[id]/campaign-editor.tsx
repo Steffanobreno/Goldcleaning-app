@@ -66,7 +66,7 @@ export function CampaignEditor({ campaign, banners, appUrl, sample, phone, maili
         <Field label="Headline">
           <Input name="headline" value={c.headline} onChange={set("headline")} placeholder="Happy Halloween!" />
         </Field>
-        <Field label="Message" hint="{first_name} = client's first name · {pet_name} = their pets · {business} = Woofers Dog Spa">
+        <Field label="Message" hint="{first_name} = client's first name · {business} = Peninsula Gold Cleaning">
           <Textarea name="body" rows={9} value={c.body} onChange={set("body")} />
         </Field>
         <div className="grid grid-cols-2 gap-3">
@@ -80,7 +80,7 @@ export function CampaignEditor({ campaign, banners, appUrl, sample, phone, maili
       </Card>
 
       <section className="space-y-2">
-        <h2 className="section-label">Preview (sample client: {sample.first_name}, pet {sample.pet_name})</h2>
+        <h2 className="section-label">Preview (sample client: {sample.first_name})</h2>
         <iframe title="Email preview" srcDoc={html} className="h-[720px] w-full rounded-[var(--radius-card)] border border-line bg-white" />
       </section>
 

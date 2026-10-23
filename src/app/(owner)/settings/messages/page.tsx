@@ -21,9 +21,8 @@ const TEMPLATE_INFO: Record<string, { title: string; when: string }> = {
   confirmed: { title: "Confirmed", when: "When the client taps Confirm on their link" },
   cancelled: { title: "Cancelled", when: "When the visit is cancelled" },
   on_my_way: { title: "On my way", when: "You send it with the button on the appointment" },
-  rebook: { title: "Time to rebook", when: "When the pet's grooming frequency has passed, at a set time" },
+  rebook: { title: "Time to rebook", when: "When the booked frequency has passed (4 weeks after a one-time cleaning), at a set time" },
   review_request: { title: "Review request", when: "Minutes after checkout (needs the review link)" },
-  vaccine_due: { title: "Vaccine expiring", when: "Days before a pet's vaccine expires, at a set time" },
   abandoned_booking: { title: "Didn't finish booking", when: "A while after someone stops halfway on the booking page (8am–8pm)" },
 };
 const ORDER = Object.keys(TEMPLATE_INFO);
@@ -115,8 +114,8 @@ export default async function MessagesSettingsPage() {
             <Link href="/settings/messages/preview" className="text-sm font-semibold text-brand">Preview emails</Link>
           </div>
           <p className="px-1 text-xs text-muted">
-            You can use {"{client}"}, {"{pet}"}, {"{date}"}, {"{time}"}, {"{link}"} (confirm or cancel page), {"{booking_url}"},{" "}
-            {"{business}"}, {"{business_phone}"}, {"{days}"}, {"{review_url}"}, and in the vaccine message {"{vaccine}"} and {"{expires}"}.
+            You can use {"{client}"}, {"{service}"}, {"{total}"}, {"{date}"}, {"{time}"}, {"{link}"} (confirm or cancel page), {"{booking_url}"},{" "}
+            {"{business}"}, {"{business_phone}"}, {"{days}"}, {"{review_url}"}.
           </p>
           {templates.map((t) => {
             const info = TEMPLATE_INFO[t.trigger] ?? { title: t.trigger, when: "" };
@@ -133,17 +132,12 @@ export default async function MessagesSettingsPage() {
                       <input type="checkbox" name="enabled" defaultChecked={t.enabled} className="h-4 w-4" />
                       Send this message
                     </label>
-                    {t.trigger === "vaccine_due" && (
-                      <Field label="Days before it expires">
-                        <Input name="offset_days" type="number" min={1} max={90} defaultValue={t.offset_days ?? 30} />
-                      </Field>
-                    )}
                     {t.trigger === "reminder" && (
                       <Field label="Days before the visit">
                         <Input name="offset_days" type="number" min={0} max={14} defaultValue={t.offset_days ?? 2} />
                       </Field>
                     )}
-                    {(t.trigger === "reminder" || t.trigger === "rebook" || t.trigger === "vaccine_due") && (
+                    {(t.trigger === "reminder" || t.trigger === "rebook") && (
                       <Field label="Send at">
                         <Input name="send_at_time" type="time" defaultValue={t.send_at_time ?? "10:00"} />
                       </Field>

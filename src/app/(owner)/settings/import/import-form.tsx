@@ -26,7 +26,7 @@ export function ImportForm() {
       {r && (
         <div className="space-y-2">
           <Notice kind="success">
-            {r.created} clients and {r.pets} pets imported, {r.appointments} upcoming visits.
+            {r.created} clients and {r.homes} homes imported, {r.appointments} upcoming visits.
             {r.existing > 0 && ` ${r.existing} were already here and were left as they are.`}
           </Notice>
           {r.moreUpcoming.length > 0 && (

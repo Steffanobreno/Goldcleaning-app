@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireStaff } from "@/lib/auth";
 import { sql } from "@/lib/db";
-import { listDay } from "@/lib/data/appointments";
+import { listDay, visitLabel } from "@/lib/data/appointments";
+import { accessLabel } from "@/lib/home-options";
 import { directionsUrl, routeUrl } from "@/lib/directions";
 import { addDaysYmd, isYmd, longDayLabel, money, timeLabel, todayYmd, zonedToUtc } from "@/lib/format";
 import { ButtonLink, Empty, Page, PageHeader, StatusBadge } from "@/components/ui";
@@ -12,7 +13,6 @@ import { RouteMap } from "@/components/route-map";
 import { locateStops } from "@/lib/geocode";
 import { GroomerFilter } from "@/components/groomer-filter";
 import { listGroomers } from "@/lib/data/staff";
-import { alertText, vaccineAlerts } from "@/lib/data/vaccines";
 
 export const metadata: Metadata = { title: "Today" };
 
@@ -35,10 +35,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
       : groomers.length > 1 ? staff.staffId : null;
   const all = groomer ? day.filter((a) => a.staff_id === groomer) : day;
   const stops = all.filter((a) => !["cancelled", "no_show"].includes(a.status));
-  const [vaccines] = await Promise.all([
-    vaccineAlerts(staff, stops.flatMap((s) => s.pets.map((p) => p.id)), date),
-    locateStops(stops),
-  ]);
+  await locateStops(stops);
   const pins = stops
     .map((s, i) => ({ s, n: i + 1 }))
     .filter(({ s }) => s.lat != null && s.lng != null)
@@ -115,18 +112,15 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
                         <span className="text-lg font-bold leading-tight">{s.client_name}</span>
                         <StatusBadge status={s.paid ? "paid" : s.status} />
                       </div>
-                      {s.pets.map((p) => (
-                        <div key={p.name} className="truncate text-sm">
-                          <span className="font-semibold">{p.name}</span>
-                          <span className="text-muted"> · {p.services.join(", ")}</span>
-                        </div>
-                      ))}
+                      <div className="truncate text-sm">
+                        <span className="font-semibold">{visitLabel(s)}</span>
+                        <span className="text-muted"> · {money(s.total_cents)}</span>
+                      </div>
                       <div className="truncate text-sm text-muted">{s.address_line ?? "No address"}</div>
-                      {s.pets.flatMap((p) => vaccines.filter((v) => v.pet_id === p.id).map((v) => (
-                        <div key={p.id + v.name} className={`text-xs font-semibold ${v.expired ? "text-danger" : "text-warn"}`}>
-                          💉 {p.name}: {alertText(v)}
-                        </div>
-                      )))}
+                      {s.home?.access_method && (
+                        <div className="truncate text-xs">🔑 {[accessLabel(s.home.access_method), s.home.access_code].filter(Boolean).join(" · ")}</div>
+                      )}
+                      {s.home?.pets_in_home && <div className="truncate text-xs text-warn">🐾 {s.home.pets_in_home}</div>}
                     </div>
                   </Link>
                   <div className="grid grid-cols-3 divide-x divide-line border-t border-line text-sm font-semibold text-brand">

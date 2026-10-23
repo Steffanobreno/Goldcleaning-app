@@ -4,26 +4,25 @@ import { revalidatePath } from "next/cache";
 import { requireStaff, type StaffContext } from "@/lib/auth";
 import { isExclusionViolation, sql } from "@/lib/db";
 import { hm, isYmd, timeLabel, weekdayOf, ymd, zonedToUtc } from "@/lib/format";
-import { tooFarFromDay, workingHoursFor } from "@/lib/data/appointments";
+import { workingHoursFor } from "@/lib/data/appointments";
+import { insertAppointment } from "@/lib/data/appointment-write";
+import { loadCatalog } from "@/lib/data/catalog";
+import { FREQUENCIES, quote, type Frequency, type PriceLine } from "@/lib/pricing";
 import { recalcInvoice } from "@/lib/data/invoices";
 import { notifyAppointment } from "@/lib/messaging";
 import { NEXT_STATUS } from "@/lib/appointment-status";
+import { PAYMENT_METHODS } from "@/lib/payment-methods";
 import { asGroomer, ownGroomer } from "@/lib/data/staff";
 
 export type FormState = { error?: string; warning?: string } | undefined;
 
-type PetPick = { petId: string; serviceIds: string[] };
-
-/** Reads "pet:<id>" checkboxes and "svc:<petId>" multi-values from the booking form. */
-function readPicks(form: FormData): PetPick[] {
-  const picks: PetPick[] = [];
+/** Reads the "x:<extraId>" quantities from the booking form. */
+function readExtras(form: FormData) {
+  const extras: { serviceId: string; qty: number }[] = [];
   for (const [key, value] of form.entries()) {
-    if (key === "pet" && typeof value === "string") {
-      const serviceIds = form.getAll(`svc:${value}`).map(String).filter(Boolean);
-      picks.push({ petId: value, serviceIds });
-    }
+    if (key.startsWith("x:")) extras.push({ serviceId: key.slice(2), qty: Number(value) || 0 });
   }
-  return picks;
+  return extras;
 }
 
 async function outsideHours(staff: StaffContext, date: string, start: string, end: Date) {
@@ -36,7 +35,7 @@ async function outsideHours(staff: StaffContext, date: string, start: string, en
   return null;
 }
 
-// The owner may overlap visits on purpose (a dog finishing early), so this only warns.
+// The owner may overlap visits on purpose (a small job before a big one), so this only warns.
 async function overlapWarning(staff: StaffContext, start: Date, end: Date, excludeId?: string) {
   const [other] = await sql`
     select c.first_name, a.start_at from appointments a join clients c on c.id = a.client_id
@@ -52,83 +51,66 @@ async function overlapWarning(staff: StaffContext, start: Date, end: Date, exclu
   return block ? `This overlaps blocked time${block.reason ? ` (${block.reason})` : ""} at ${timeLabel(block.start_at, staff.timezone)}.` : null;
 }
 
-async function distanceWarning(staff: StaffContext, date: string, zip: string | null, excludeId?: string) {
-  const far = await tooFarFromDay(staff, date, zip, excludeId);
-  return far
-    ? `This address is about ${Math.round(far.miles)} miles from ${far.client}'s stop that day (your limit is ${far.limit}).`
-    : null;
-}
-
 export async function createAppointmentAction(clientId: string, _: FormState, form: FormData): Promise<FormState> {
-  const me = await requireStaff();
-  // The groomer who does the visit (their hours, blocks and route); the owner by default.
-  const staff = asGroomer(me, (await ownGroomer(me, form.get("staff_id"))) ?? me.staffId);
+  const staff = await requireStaff();
   const date = String(form.get("date") ?? "");
   const time = String(form.get("time") ?? "");
   const notes = String(form.get("notes") ?? "").trim() || null;
   const override = form.get("override") === "on";
   if (!isYmd(date) || !/^\d{2}:\d{2}$/.test(time)) return { error: "Pick a date and a start time." };
 
-  const picks = readPicks(form);
-  if (picks.length === 0) return { error: "Choose at least one pet." };
-  if (picks.some((p) => p.serviceIds.length === 0)) return { error: "Choose a service for each pet." };
+  const homeId = String(form.get("home") ?? "");
+  const [home] = await sql`
+    select h.bedrooms, h.full_baths, h.half_baths from homes h join clients c on c.id = h.client_id
+    where h.id = ${homeId} and h.client_id = ${clientId} and c.business_id = ${staff.businessId}`;
+  if (!home) return { error: "Choose the home." };
+  const frequency = String(form.get("frequency") ?? "one_time") as Frequency;
+  if (!FREQUENCIES.includes(frequency)) return { error: "Choose how often." };
 
-  const [client] = await sql`
-    select id, address_line, city, state, zip, lat, lng from clients
-    where id = ${clientId} and business_id = ${staff.businessId}`;
-  if (!client) return { error: "Client not found." };
+  const q = quote(await loadCatalog(staff.businessId), {
+    serviceId: String(form.get("service") ?? ""),
+    frequency,
+    home: { bedrooms: home.bedrooms, fullBaths: home.full_baths, halfBaths: home.half_baths },
+    extras: readExtras(form),
+  });
+  if ("error" in q) return { error: q.error };
+  const lines: (PriceLine | (Omit<PriceLine, "kind"> & { kind: "adjustment" }))[] = [...q.lines];
+  const adjust = String(form.get("adjustment") ?? "").replace(/[$,\s]/g, "");
+  if (adjust !== "") {
+    const cents = Math.round(Number(adjust) * 100);
+    if (!Number.isFinite(cents) || Math.abs(cents) > 1_000_000) return { error: "Check the price adjustment." };
+    if (cents !== 0) lines.push({ kind: "adjustment", serviceId: null, label: cents < 0 ? "Discount" : "Adjustment", qty: 1, unitCents: cents, amountCents: cents });
+  }
 
-  const petIds = picks.map((p) => p.petId);
-  const ownPets = await sql`select id from pets where client_id = ${clientId} and id = any(${petIds})`;
-  if (ownPets.length !== new Set(petIds).size) return { error: "One of the pets does not belong to this client." };
-
-  const serviceIds = [...new Set(picks.flatMap((p) => p.serviceIds))];
-  const services = await sql<{ id: string; name: string; price_cents: number; duration_min: number }[]>`
-    select id, name, price_cents, duration_min from services
-    where business_id = ${staff.businessId} and active and id = any(${serviceIds})`;
-  const byId = new Map(services.map((s) => [s.id, s]));
-  if (serviceIds.some((id) => !byId.has(id))) return { error: "One of the services is no longer available." };
-
-  // Pets are groomed one after the other, so the visit lasts the sum of all services.
-  // The groomer may adjust the estimate on the form ("duration"); otherwise it's the services' total.
-  const servicesMin = picks.flatMap((p) => p.serviceIds).reduce((sum, id) => sum + byId.get(id)!.duration_min, 0);
+  // The owner may change the estimate on the form ("duration"); otherwise it comes from the home size.
   const typed = Number(form.get("duration"));
-  const totalMin = Number.isInteger(typed) && typed >= 15 && typed <= 720 ? typed : servicesMin;
+  const durationMin = Number.isInteger(typed) && typed >= 30 && typed <= 720 ? typed : q.durationMin;
   const startAt = zonedToUtc(date, time, staff.timezone);
-  const endAt = new Date(startAt.getTime() + Math.max(totalMin, 15) * 60_000);
+  const endAt = new Date(startAt.getTime() + durationMin * 60_000);
 
   if (!override) {
-    const warning =
-      (await outsideHours(staff, date, time, endAt)) ??
-      (await overlapWarning(staff, startAt, endAt)) ??
-      (await distanceWarning(staff, date, client.zip));
+    const warning = (await outsideHours(staff, date, time, endAt)) ?? (await overlapWarning(staff, startAt, endAt));
     if (warning) return { warning };
   }
 
-  const address = [client.address_line, client.city, client.state].filter(Boolean).join(", ") || null;
   let id: string;
   try {
-    id = await sql.begin(async (tx) => {
-      const [appt] = await tx`
-        insert into appointments (business_id, client_id, staff_id, start_at, end_at, status, source,
-                                  address_line, zip, lat, lng, notes)
-        values (${staff.businessId}, ${clientId}, ${staff.staffId}, ${startAt}, ${endAt}, 'unconfirmed', 'manual',
-                ${address}, ${client.zip}, ${client.lat}, ${client.lng}, ${notes})
-        returning id`;
-      // An adjusted estimate goes on the first service, so the visit's services still add up to its length.
-      let delta = totalMin - servicesMin;
-      for (const pick of picks) {
-        const [ap] = await tx`insert into appointment_pets (appointment_id, pet_id) values (${appt.id}, ${pick.petId}) returning id`;
-        for (const sid of pick.serviceIds) {
-          const s = byId.get(sid)!;
-          const minutes = Math.max(s.duration_min + delta, 0);
-          delta -= minutes - s.duration_min;
-          await tx`insert into appointment_services (appointment_pet_id, service_id, name, price_cents, duration_min)
-                   values (${ap.id}, ${s.id}, ${s.name}, ${s.price_cents}, ${minutes})`;
-        }
-      }
-      return appt.id as string;
-    });
+    id = await sql.begin((tx) =>
+      insertAppointment(tx, {
+        businessId: staff.businessId,
+        clientId,
+        staffId: staff.staffId,
+        homeId,
+        serviceId: q.service.id,
+        frequency,
+        startAt,
+        durationMin,
+        status: "unconfirmed",
+        source: "manual",
+        notes,
+        lines: lines as PriceLine[],
+      }),
+    );
   } catch (e) {
     if (isExclusionViolation(e)) return { error: "You already have an appointment at that time. Pick another time." };
     throw e;
@@ -138,7 +120,6 @@ export async function createAppointmentAction(clientId: string, _: FormState, fo
   revalidatePath("/calendar");
   redirect(`/appointments/${id}?booked=1`);
 }
-
 
 export async function setStatusAction(appointmentId: string, status: string) {
   const staff = await requireStaff();
@@ -189,8 +170,7 @@ export async function rescheduleAction(appointmentId: string, _: FormState, form
   if (form.get("override") !== "on") {
     const warning =
       (await outsideHours(staff, date, time, endAt)) ??
-      (await overlapWarning(staff, startAt, endAt, appointmentId)) ??
-      (await distanceWarning(staff, date, appt.zip, appointmentId));
+      (await overlapWarning(staff, startAt, endAt, appointmentId));
     if (warning) return { warning };
   }
   try {
@@ -226,13 +206,14 @@ async function openInvoice(staff: StaffContext, appointmentId: string) {
                            values (${staff.businessId}, ${appointmentId}, ${appt.client_id}) returning id`;
     await tx`
       insert into invoice_items (invoice_id, kind, description, amount_cents)
-      select ${inv.id}, case when sv.kind = 'addon' then 'addon' else 'service' end, p.name || ': ' || s.name, s.price_cents
-      from appointment_pets ap
-      join pets p on p.id = ap.pet_id
-      join appointment_services s on s.appointment_pet_id = ap.id
-      join services sv on sv.id = s.service_id
-      where ap.appointment_id = ${appointmentId}
-      order by p.name, s.created_at`;
+      select ${inv.id},
+             case l.kind when 'extra' then 'addon' when 'adjustment' then (case when l.price_cents < 0 then 'discount' else 'fee' end)
+                         else 'service' end,
+             l.name || case when l.qty > 1 then ' × ' || l.qty else '' end, l.price_cents
+      from appointment_homes ah
+      join appointment_lines l on l.appointment_home_id = ah.id
+      where ah.appointment_id = ${appointmentId}
+      order by l.created_at, l.id`;
     await recalcInvoice(tx, inv.id);
     return inv.id as string;
   });
@@ -315,7 +296,7 @@ export async function recordPaymentAction(appointmentId: string, _: FormState, f
   const invoiceId = await editableInvoice(staff, appointmentId);
   if (!invoiceId) return { error: "This checkout is already closed." };
   const method = String(form.get("method") ?? "");
-  if (!["cash", "zelle", "venmo", "check", "bitcoin", "other"].includes(method)) return { error: "Choose how the client paid." };
+  if (!PAYMENT_METHODS.some((m) => m.value === method)) return { error: "Choose how the client paid." };
   const toCents = (v: FormDataEntryValue | null) => {
     const t = String(v ?? "").replace(/[$,\s]/g, "");
     return t === "" ? 0 : Math.round(Number(t) * 100);
@@ -352,61 +333,52 @@ export async function reopenInvoiceAction(appointmentId: string) {
   revalidatePath(`/appointments/${appointmentId}/checkout`);
 }
 
-// ---------------------------------------------------------------- edit services
-
-export type ServiceLine = { id?: string; appointmentPetId: string; serviceId: string; priceCents: number; minutes: number };
+// ---------------------------------------------------------------- edit the price
 
 /**
- * Replaces the services of a visit (after the client booked online, a dog may take less or
- * more time, or need an extra). The visit's end moves with the total time. Not allowed once
- * checkout started: prices are then changed on the bill.
+ * Re-prices a booked visit (the client added an extra on the phone, or a discount): the lines
+ * are worked out again from today's price list and replace the old ones; the visit's end moves
+ * with its length. Not allowed once checkout started: prices are then changed on the bill.
  */
-export async function saveServicesAction(appointmentId: string, lines: ServiceLine[]): Promise<{ error?: string; warning?: string } | undefined> {
+export async function saveLinesAction(appointmentId: string, _: FormState, form: FormData): Promise<FormState> {
   const staff = await requireStaff();
-  const [appt] = await sql`select id, start_at, status, staff_id from appointments where id = ${appointmentId} and business_id = ${staff.businessId}`;
+  const [appt] = await sql`
+    select a.id, a.start_at, a.staff_id, ah.id as appointment_home_id, h.bedrooms, h.full_baths, h.half_baths
+    from appointments a join appointment_homes ah on ah.appointment_id = a.id join homes h on h.id = ah.home_id
+    where a.id = ${appointmentId} and a.business_id = ${staff.businessId}
+    order by ah.created_at limit 1`;
   if (!appt) return { error: "Appointment not found." };
   const [inv] = await sql`select id from invoices where appointment_id = ${appointmentId}`;
   if (inv) return { error: "Checkout already started. Change prices on the bill instead." };
-  if (!Array.isArray(lines) || lines.length === 0 || lines.length > 40) return { error: "Keep at least one service." };
-  for (const l of lines) {
-    if (!Number.isInteger(l.priceCents) || l.priceCents < 0 || l.priceCents > 1_000_000) return { error: "Check the prices." };
-    if (!Number.isInteger(l.minutes) || l.minutes < 0 || l.minutes > 720) return { error: "Each service takes 0 to 12 hours." };
-  }
-  const pets = await sql`select id from appointment_pets where appointment_id = ${appointmentId}`;
-  const petIds = new Set(pets.map((p) => p.id as string));
-  if (lines.some((l) => !petIds.has(l.appointmentPetId))) return { error: "Please reload the page and try again." };
-  for (const pid of petIds) {
-    if (!lines.some((l) => l.appointmentPetId === pid)) return { error: "Each pet needs at least one service." };
-  }
-  const existing = await sql`
-    select s.id from appointment_services s join appointment_pets ap on ap.id = s.appointment_pet_id
-    where ap.appointment_id = ${appointmentId}`;
-  const existingIds = new Set(existing.map((e) => e.id as string));
-  if (lines.some((l) => l.id && !existingIds.has(l.id))) return { error: "Please reload the page and try again." };
-  const serviceIds = [...new Set(lines.map((l) => l.serviceId))];
-  const services = await sql<{ id: string; name: string }[]>`
-    select id, name from services where business_id = ${staff.businessId} and id = any(${serviceIds})`;
-  const names = new Map(services.map((s) => [s.id, s.name]));
-  if (serviceIds.some((id) => !names.has(id))) return { error: "One of the services no longer exists." };
-
-  const totalMin = lines.reduce((s, l) => s + l.minutes, 0);
-  const endAt = new Date(appt.start_at.getTime() + Math.max(totalMin, 15) * 60_000);
+  const frequency = String(form.get("frequency") ?? "one_time") as Frequency;
+  if (!FREQUENCIES.includes(frequency)) return { error: "Choose how often." };
+  const q = quote(await loadCatalog(staff.businessId), {
+    serviceId: String(form.get("service") ?? ""),
+    frequency,
+    home: { bedrooms: appt.bedrooms, fullBaths: appt.full_baths, halfBaths: appt.half_baths },
+    extras: readExtras(form),
+  });
+  if ("error" in q) return { error: q.error };
+  const adjust = String(form.get("adjustment") ?? "").replace(/[$,\s]/g, "");
+  const adjustCents = adjust === "" ? 0 : Math.round(Number(adjust) * 100);
+  if (!Number.isFinite(adjustCents) || Math.abs(adjustCents) > 1_000_000) return { error: "Check the price adjustment." };
+  const typed = Number(form.get("duration"));
+  const durationMin = Number.isInteger(typed) && typed >= 30 && typed <= 720 ? typed : q.durationMin;
+  const endAt = new Date(appt.start_at.getTime() + durationMin * 60_000);
   try {
     await sql.begin(async (tx) => {
-      const keep = lines.map((l) => l.id).filter((x): x is string => !!x);
-      await tx`delete from appointment_services s using appointment_pets ap
-               where ap.id = s.appointment_pet_id and ap.appointment_id = ${appointmentId}
-                 and not (s.id = any(${keep}::uuid[]))`;
-      for (const l of lines) {
-        if (l.id) {
-          await tx`update appointment_services set price_cents = ${l.priceCents}, duration_min = ${l.minutes}
-                   where id = ${l.id}`;
-        } else {
-          await tx`insert into appointment_services (appointment_pet_id, service_id, name, price_cents, duration_min)
-                   values (${l.appointmentPetId}, ${l.serviceId}, ${names.get(l.serviceId)!}, ${l.priceCents}, ${l.minutes})`;
-        }
+      await tx`delete from appointment_lines where appointment_home_id = ${appt.appointment_home_id}`;
+      for (const l of q.lines) {
+        await tx`insert into appointment_lines (appointment_home_id, service_id, kind, name, qty, price_cents, duration_min)
+                 values (${appt.appointment_home_id}, ${l.serviceId}, ${l.kind}, ${l.label}, ${l.qty}, ${l.amountCents},
+                         ${l.kind === "service" ? durationMin : 0})`;
       }
-      await tx`update appointments set end_at = ${endAt} where id = ${appointmentId}`;
+      if (adjustCents !== 0) {
+        await tx`insert into appointment_lines (appointment_home_id, service_id, kind, name, qty, price_cents, duration_min)
+                 values (${appt.appointment_home_id}, null, 'adjustment', ${adjustCents < 0 ? "Discount" : "Adjustment"}, 1, ${adjustCents}, 0)`;
+      }
+      await tx`update appointments set end_at = ${endAt}, service_id = ${q.service.id}, frequency = ${frequency}
+               where id = ${appointmentId}`;
     });
   } catch (e) {
     if (isExclusionViolation(e)) return { error: "With that length it runs into another online booking. Shorten it or move one visit." };
@@ -416,7 +388,8 @@ export async function saveServicesAction(appointmentId: string, lines: ServiceLi
   revalidatePath("/today");
   revalidatePath("/calendar");
   const warning = await overlapWarning(asGroomer(staff, appt.staff_id), appt.start_at, endAt, appointmentId);
-  return warning ? { warning: `Saved. Heads up: ${warning.charAt(0).toLowerCase()}${warning.slice(1)}` } : undefined;
+  if (warning && form.get("override") !== "on") return { warning: `Saved. Heads up: ${warning.charAt(0).toLowerCase()}${warning.slice(1)}` };
+  redirect(`/appointments/${appointmentId}`);
 }
 
 /** Gives the visit to another groomer (same time), when they're free then. */

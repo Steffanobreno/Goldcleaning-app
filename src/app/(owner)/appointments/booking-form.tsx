@@ -2,213 +2,212 @@
 import { ActionForm } from "@/components/action-form";
 import { useActionState, useState } from "react";
 import { Button, Field, Input, Notice, Select, Textarea } from "@/components/ui";
-import { minutesLabel, money, sizeLabel } from "@/lib/format";
-import { Dog } from "@/components/icons";
+import { minutesLabel, money } from "@/lib/format";
+import { homeSizeLabel } from "@/lib/home-options";
+import { FREQUENCIES, FREQUENCY_LABEL, quote, totalCents, type Catalog, type Frequency } from "@/lib/pricing";
 import type { FormState } from "./actions";
 
-type Pet = { id: string; name: string; breed: string | null; size_class: string | null; vaccineAlert?: string | null };
-type Service = {
-  id: string;
-  name: string;
-  kind: "service" | "addon";
-  category: string | null;
-  size_class: string | null;
-  duration_min: number;
-  price_cents: number;
-};
+type Home = { id: string; label: string; bedrooms: number; full_baths: number; half_baths: number; address: string };
+/** Editing the price of a booked visit: its home is fixed and there is no date to pick. */
+export type EditValues = { serviceId: string; frequency: Frequency; qty: Record<string, number>; adjustCents: number; durationMin: number; baseMin: number };
 
 export function BookingForm({
   action,
-  pets,
-  services,
+  homes,
+  catalog,
+  defaultHome,
   defaultDate,
   defaultTime,
-  groomers = [],
-  defaultGroomer,
+  slotTimes,
+  edit,
 }: {
   action: (state: FormState, form: FormData) => Promise<FormState>;
-  pets: Pet[];
-  services: Service[];
+  homes: Home[];
+  catalog: Catalog;
+  defaultHome?: string;
   defaultDate: string;
   defaultTime: string;
-  groomers?: { id: string; name: string; color: string }[]; // shown when there's more than one
-  defaultGroomer?: string;
+  slotTimes: { time: string; label: string }[]; // quick picks: the online slots
+  edit?: EditValues;
 }) {
   const [state, formAction, pending] = useActionState(action, undefined);
-  const [chosen, setChosen] = useState<Record<string, boolean>>(() =>
-    pets.length === 1 ? { [pets[0].id]: true } : {},
-  );
-  const [main, setMain] = useState<Record<string, string>>({});
-  const [extras, setExtras] = useState<Record<string, string[]>>({});
+  const services = catalog.services.filter((s) => s.pricing === "rate");
+  const [homeId, setHomeId] = useState(defaultHome && homes.some((h) => h.id === defaultHome) ? defaultHome : homes[0]?.id ?? "");
+  const [serviceId, setServiceId] = useState(edit?.serviceId ?? services[0]?.id ?? "");
+  const service = services.find((s) => s.id === serviceId);
+  const offered = FREQUENCIES.filter((f) => service?.rates[f]);
+  const [frequency, setFrequency] = useState<Frequency>(edit?.frequency ?? "one_time");
+  const freq = offered.includes(frequency) ? frequency : (offered[0] ?? "one_time");
+  const [qty, setQty] = useState<Record<string, number>>(edit?.qty ?? {});
+  const [time, setTime] = useState(defaultTime);
+  const [extraMin, setExtraMin] = useState(edit ? edit.durationMin - edit.baseMin : 0); // the owner's change to the estimate
+  const [adjust, setAdjust] = useState(edit?.adjustCents ? (edit.adjustCents / 100).toFixed(2) : "");
 
-  const mains = services.filter((s) => s.kind === "service");
-  const addons = services.filter((s) => s.kind === "addon");
-  const byId = new Map(services.map((s) => [s.id, s]));
-
-  let minutes = 0;
-  let cents = 0;
-  for (const pet of pets) {
-    if (!chosen[pet.id]) continue;
-    for (const id of [main[pet.id], ...(extras[pet.id] ?? [])]) {
-      const s = id ? byId.get(id) : undefined;
-      if (s) {
-        minutes += s.duration_min;
-        cents += s.price_cents;
-      }
-    }
-  }
-
-  const [extraMin, setExtraMin] = useState(0); // the groomer's adjustment to the estimate
-  const visitMin = Math.max(minutes + extraMin, 15);
+  const home = homes.find((h) => h.id === homeId);
+  const q = home
+    ? quote(catalog, {
+        serviceId,
+        frequency: freq,
+        home: { bedrooms: home.bedrooms, fullBaths: home.full_baths, halfBaths: home.half_baths },
+        extras: Object.entries(qty).filter(([, n]) => n > 0).map(([id, n]) => ({ serviceId: id, qty: n })),
+      })
+    : null;
+  const priced = q && !("error" in q) ? q : null;
+  const adjustCents = Math.round((Number(adjust.replace(/[$,\s]/g, "")) || 0) * 100);
+  const total = (priced ? totalCents(priced.lines) : 0) + adjustCents;
+  const visitMin = Math.max((priced?.durationMin ?? 0) + extraMin, 30);
 
   return (
     <ActionForm action={formAction} className="space-y-4">
       {state?.error && <Notice kind="error">{state.error}</Notice>}
 
-      <h2 className="section-label">Select pet</h2>
-      {pets.map((pet) => {
-        const on = !!chosen[pet.id];
-        // Services for this pet's size first, then the rest.
-        const fits = mains.filter((s) => !s.size_class || s.size_class === pet.size_class);
-        const others = mains.filter((s) => s.size_class && s.size_class !== pet.size_class);
-        return (
-          <fieldset key={pet.id} className={`card overflow-hidden ${on ? "border-2 border-brand" : ""}`}>
-            <legend className="sr-only">{pet.name}</legend>
-            <label className="flex cursor-pointer items-center gap-4 px-4 py-4">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-bg"><Dog size={26} /></span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-lg font-bold">{pet.name}</span>
-                <span className="block truncate text-sm text-muted">{[pet.breed, sizeLabel(pet.size_class)].filter(Boolean).join(" · ")}</span>
-                {pet.vaccineAlert && <span className="block text-xs font-semibold text-danger">💉 {pet.vaccineAlert}</span>}
-              </span>
-              <input
-                type="checkbox"
-                name="pet"
-                value={pet.id}
-                checked={on}
-                onChange={(e) => setChosen({ ...chosen, [pet.id]: e.target.checked })}
-                className="h-6 w-6 accent-[var(--color-brand)]"
-              />
-            </label>
-            {on && (
-              <div className="space-y-3 border-t border-line px-4 py-4">
-                <Field label="Service">
-                  <Select
-                    name={`svc:${pet.id}`}
-                    required
-                    value={main[pet.id] ?? ""}
-                    onChange={(e) => setMain({ ...main, [pet.id]: e.target.value })}
-                  >
-                    <option value="" disabled>
-                      Choose a service
-                    </option>
-                    <optgroup label={pet.size_class ? `For ${sizeLabel(pet.size_class)}` : "Services"}>
-                      {fits.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} — {money(s.price_cents)} · {minutesLabel(s.duration_min)}
-                        </option>
-                      ))}
-                    </optgroup>
-                    {others.length > 0 && (
-                      <optgroup label="Other sizes">
-                        {others.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name} — {money(s.price_cents)}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </Select>
-                </Field>
-                {addons.length > 0 && (
-                  <details className="rounded-xl border border-line px-3 py-2" open={(extras[pet.id]?.length ?? 0) > 0}>
-                    <summary className="cursor-pointer text-sm font-semibold text-brand">
-                      Add-ons{extras[pet.id]?.length ? ` (${extras[pet.id].length})` : ""}
-                    </summary>
-                    <ul className="mt-2 space-y-1">
-                      {addons.map((a) => {
-                        const list = extras[pet.id] ?? [];
-                        return (
-                          <li key={a.id}>
-                            <label className="flex items-center gap-3 py-1.5 text-sm">
-                              <input
-                                type="checkbox"
-                                name={`svc:${pet.id}`}
-                                value={a.id}
-                                checked={list.includes(a.id)}
-                                onChange={(e) =>
-                                  setExtras({
-                                    ...extras,
-                                    [pet.id]: e.target.checked ? [...list, a.id] : list.filter((x) => x !== a.id),
-                                  })
-                                }
-                                className="h-5 w-5 accent-[var(--color-brand)]"
-                              />
-                              <span className="flex-1">{a.name}</span>
-                              <span className="text-muted">{money(a.price_cents)}</span>
-                            </label>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </details>
-                )}
-              </div>
-            )}
-          </fieldset>
-        );
-      })}
+      {edit ? (
+        <input type="hidden" name="home" value={homeId} />
+      ) : (
+      <>
+      <h2 className="section-label">Home</h2>
+      <div className="space-y-2">
+        {homes.map((h) => (
+          <label key={h.id} className="card flex cursor-pointer items-center gap-3 px-4 py-3 has-[:checked]:border-2 has-[:checked]:border-brand">
+            <input type="radio" name="home" value={h.id} checked={h.id === homeId} onChange={() => setHomeId(h.id)} className="h-5 w-5 accent-[var(--color-brand)]" />
+            <span className="min-w-0">
+              <span className="block font-semibold">{h.label} · {homeSizeLabel(h)}</span>
+              <span className="block truncate text-sm text-muted">{h.address || "No address"}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+      </>
+      )}
 
-      <h2 className="section-label pt-2">When</h2>
-      <div className="card divide-y divide-line">
-        {groomers.length > 1 && (
-          <div className="px-4 py-3">
-            <span className="mb-2 block text-sm font-medium">Groomer</span>
-            <div className="flex flex-wrap gap-2">
-              {groomers.map((g) => (
-                <label key={g.id} className="flex cursor-pointer items-center gap-2 rounded-full border border-line px-3 py-1.5 text-sm font-semibold has-[:checked]:border-brand has-[:checked]:bg-brand-soft">
-                  <input type="radio" name="staff_id" value={g.id} defaultChecked={g.id === (defaultGroomer ?? groomers[0].id)} className="sr-only" />
-                  <span aria-hidden className="h-3 w-3 rounded-full" style={{ background: g.color }} />
-                  {g.name}
+      <h2 className="section-label pt-2">Service</h2>
+      <div className="card space-y-3 px-4 py-4">
+        <Field label="Service">
+          <Select name="service" value={serviceId} onChange={(e) => setServiceId(e.target.value)} required>
+            {services.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {offered.length > 1 && (
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium">How often</legend>
+            <div className="grid grid-cols-2 gap-2">
+              {offered.map((f) => (
+                <label key={f} className="flex cursor-pointer items-center justify-center rounded-xl border border-line px-3 py-2 text-sm font-semibold has-[:checked]:border-brand has-[:checked]:bg-brand-soft">
+                  <input type="radio" name="frequency" value={f} checked={f === freq} onChange={() => setFrequency(f)} className="sr-only" />
+                  {FREQUENCY_LABEL[f]}
                 </label>
               ))}
             </div>
-          </div>
+          </fieldset>
         )}
+        {offered.length <= 1 && <input type="hidden" name="frequency" value={freq} />}
+      </div>
+
+      {catalog.extras.length > 0 && (
+        <details className="card px-4 py-3" open={Object.values(qty).some((n) => n > 0)}>
+          <summary className="cursor-pointer font-semibold text-brand">
+            Extras{Object.values(qty).filter((n) => n > 0).length ? ` (${Object.values(qty).filter((n) => n > 0).length})` : ""}
+          </summary>
+          <ul className="mt-2 divide-y divide-line">
+            {catalog.extras.map((x) => {
+              const n = qty[x.id] ?? 0;
+              return (
+                <li key={x.id} className="flex items-center gap-3 py-2 text-sm">
+                  <span className="flex-1">
+                    {x.name}
+                    <span className="block text-xs text-muted">{money(x.unitCents)}{x.perUnit ? " each" : ""}</span>
+                  </span>
+                  {x.perUnit ? (
+                    <span className="flex items-center gap-2">
+                      <button type="button" className="stepper" aria-label={`Fewer ${x.name}`} onClick={() => setQty({ ...qty, [x.id]: Math.max(n - 1, 0) })}>−</button>
+                      <span className="w-6 text-center font-semibold tabular-nums">{n}</span>
+                      <button type="button" className="stepper" aria-label={`More ${x.name}`} onClick={() => setQty({ ...qty, [x.id]: Math.min(n + 1, 20) })}>+</button>
+                    </span>
+                  ) : (
+                    <input type="checkbox" aria-label={x.name} checked={n > 0} onChange={(e) => setQty({ ...qty, [x.id]: e.target.checked ? 1 : 0 })} className="h-5 w-5 accent-[var(--color-brand)]" />
+                  )}
+                  {n > 0 && <input type="hidden" name={`x:${x.id}`} value={n} />}
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
+
+      <h2 className="section-label pt-2">{edit ? "Length" : "When"}</h2>
+      <div className="card divide-y divide-line">
+        {!edit && (
         <div className="grid grid-cols-2 gap-3 px-4 py-4">
           <Field label="Date">
             <Input type="date" name="date" defaultValue={defaultDate} required />
           </Field>
           <Field label="Start time">
-            <Input type="time" name="time" defaultValue={defaultTime} step={900} required />
+            <Input type="time" name="time" value={time} onChange={(e) => setTime(e.target.value)} step={900} required />
           </Field>
+          {slotTimes.length > 0 && (
+            <div className="col-span-2 flex gap-2">
+              {slotTimes.map((s) => (
+                <button key={s.time} type="button" onClick={() => setTime(s.time)}
+                  className={`flex-1 rounded-full border px-3 py-1.5 text-sm font-semibold ${time === s.time ? "border-brand bg-brand-soft" : "border-line"}`}>
+                  {s.label} {s.time}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
+        )}
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <span>
             <span className="block font-medium">Time estimate</span>
-            <span className="block text-xs text-muted">From the services{extraMin ? `, ${extraMin > 0 ? "+" : ""}${extraMin} min` : ""}</span>
+            <span className="block text-xs text-muted">From the home size{extraMin ? `, ${extraMin > 0 ? "+" : ""}${extraMin} min` : ""}</span>
           </span>
           <span className="flex items-center gap-3">
-            <button type="button" className="stepper" aria-label="Less time" onClick={() => setExtraMin(Math.max(extraMin - 15, 15 - minutes))}>−</button>
-            <span className="w-16 text-center font-semibold tabular-nums" aria-live="polite">{minutes > 0 ? `${visitMin} min` : "—"}</span>
-            <button type="button" className="stepper" aria-label="More time" onClick={() => setExtraMin(extraMin + 15)}>+</button>
+            <button type="button" className="stepper" aria-label="Less time" onClick={() => setExtraMin(extraMin - 30)}>−</button>
+            <span className="w-16 text-center font-semibold tabular-nums" aria-live="polite">{priced ? minutesLabel(visitMin) : "—"}</span>
+            <button type="button" className="stepper" aria-label="More time" onClick={() => setExtraMin(extraMin + 30)}>+</button>
           </span>
-          <input type="hidden" name="duration" value={minutes > 0 ? visitMin : ""} />
+          <input type="hidden" name="duration" value={priced ? visitMin : ""} />
         </div>
       </div>
-      <Field label="Notes for this visit (optional)">
-        <Textarea name="notes" placeholder="Private notes for this visit" />
-      </Field>
 
-      <div className="card flex items-center justify-between px-4 py-3">
-        <span className="text-muted">{minutes > 0 ? minutesLabel(visitMin) : "No services yet"}</span>
-        <span className="text-xl font-bold">{money(cents)}</span>
+      <Field label="Price adjustment ($, optional)" hint="A negative amount is a discount, like -20.">
+        <Input name="adjustment" inputMode="decimal" value={adjust} onChange={(e) => setAdjust(e.target.value)} placeholder="0.00" />
+      </Field>
+      {!edit && (
+        <Field label="Notes for this cleaning (optional)">
+          <Textarea name="notes" placeholder="Private notes for this visit" />
+        </Field>
+      )}
+
+      <div className="card divide-y divide-line">
+        {priced?.lines.map((l, i) => (
+          <div key={i} className="flex justify-between px-4 py-2 text-sm">
+            <span>{l.label}{l.qty > 1 ? ` × ${l.qty}` : ""}</span>
+            <span className="tabular-nums">{money(l.amountCents)}</span>
+          </div>
+        ))}
+        {adjustCents !== 0 && (
+          <div className="flex justify-between px-4 py-2 text-sm">
+            <span>Adjustment</span>
+            <span className="tabular-nums">{money(adjustCents)}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between px-4 py-3">
+          <span className="text-muted">{q && "error" in q ? q.error : "Total"}</span>
+          <span className="text-xl font-bold" data-testid="total">{money(total)}</span>
+        </div>
       </div>
 
-      <label className="flex items-center gap-3 text-sm">
-        <input type="checkbox" name="notify" defaultChecked className="h-5 w-5 accent-[var(--color-brand)]" />
-        Send the confirmation to the client (text and email)
-      </label>
+      {!edit && (
+        <label className="flex items-center gap-3 text-sm">
+          <input type="checkbox" name="notify" defaultChecked className="h-5 w-5 accent-[var(--color-brand)]" />
+          Email the confirmation to the client
+        </label>
+      )}
 
       {state?.warning && (
         <div className="space-y-2">
@@ -220,8 +219,8 @@ export function BookingForm({
         </div>
       )}
 
-      <Button type="submit" className="w-full rounded-2xl py-3.5 text-base" disabled={pending}>
-        {pending ? "Booking…" : "Book appointment"}
+      <Button type="submit" className="w-full rounded-2xl py-3.5 text-base" disabled={pending || !priced}>
+        {pending ? "Saving…" : edit ? "Save" : "Book cleaning"}
       </Button>
     </ActionForm>
   );

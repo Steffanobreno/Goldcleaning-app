@@ -7,16 +7,16 @@ import { getInvoiceForAppointment } from "@/lib/data/invoices";
 import { smsTextFor } from "@/lib/messaging";
 import { sql } from "@/lib/db";
 import { fullName } from "@/lib/data/clients";
-import { addDaysYmd, hm, longDayLabel, minutesLabel, money, phoneLabel, sizeLabel, timeLabel, ymd } from "@/lib/format";
+import { addDaysYmd, hm, longDayLabel, minutesLabel, money, phoneLabel, timeLabel, ymd } from "@/lib/format";
 import { Button, Card, Notice, Page, PageHeader, statusLabel, Textarea } from "@/components/ui";
 import { Calendar, Card as Card2, Chat, Check, ChevronDown, ChevronRight, Clock, Close, Hourglass, Pencil, Phone, Pin, Plus, Van } from "@/components/icons";
 import { NEXT_STATUS } from "@/lib/appointment-status";
 import { ruleLabel, type RepeatRule } from "@/lib/repeat";
 import { assignGroomerAction, setStatusAction, rescheduleAction, startCheckoutAction, updateNotesAction } from "../actions";
 import { listGroomers } from "@/lib/data/staff";
-import { alertText, vaccineAlerts } from "@/lib/data/vaccines";
+import { accessLabel, homeSizeLabel } from "@/lib/home-options";
+import { FREQUENCY_LABEL } from "@/lib/pricing";
 import { RescheduleForm } from "../reschedule-form";
-import { PetPhoto } from "@/components/pet-photo";
 import { AddressLink, PhoneLink } from "@/components/contact-sheet";
 
 export const metadata: Metadata = { title: "Appointment" };
@@ -38,6 +38,7 @@ const TRIGGER_LABEL: Record<string, string> = {
   confirmed: "Confirmed",
   cancelled: "Cancelled",
   rebook: "Time to rebook",
+  thank_you: "Thank you",
   review_request: "Review request",
 };
 const MESSAGE_STATUS: Record<string, string> = {
@@ -54,7 +55,7 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
   const sp = await searchParams;
   const appt = await getAppointment(staff, id);
   if (!appt) notFound();
-  const [checkout, onMyWay, messages, [series], groomers, vaccines] = await Promise.all([
+  const [checkout, onMyWay, messages, [series], groomers] = await Promise.all([
     getInvoiceForAppointment(staff, id),
     smsTextFor(id, "on_my_way"),
     sql<{ id: string; channel: string; status: string; template_trigger: string | null; created_at: Date }[]>`
@@ -67,23 +68,20 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
            and x.status in ('unconfirmed', 'confirmed')) as upcoming
       from appointment_series s where s.id = ${appt.series_id ?? null}::uuid`,
     listGroomers(staff),
-    vaccineAlerts(staff, appt.pets.map((p) => p.pet_id), ymd(appt.start_at, staff.timezone)),
   ]);
   const groomer = groomers.find((g) => g.id === appt.staff_id);
   const otherGroomers = groomers.filter((g) => g.active && g.id !== appt.staff_id);
   const tz = staff.timezone;
   const c = appt.client;
   const minutes = Math.round((appt.end_at.getTime() - appt.start_at.getTime()) / 60000);
-  const total = appt.pets.flatMap((p) => p.services).reduce((s, x) => s + x.price_cents, 0);
+  const total = appt.total_cents;
+  const home = appt.home;
   const primary = PRIMARY[appt.status];
   const paid = checkout?.invoice.status === "closed";
   const closed = ["cancelled", "no_show", "declined"].includes(appt.status);
-  // Next visit: the shortest grooming frequency among the pets, or 6 weeks.
-  const frequencies = appt.pets.map((p) => p.rebook_every_days).filter((d): d is number => d != null);
-  const rebookDays = frequencies.length ? Math.min(...frequencies) : 42;
+  // "Book again": the same weekday after the booked frequency (4 weeks for a one-time cleaning).
+  const rebookDays = { weekly: 7, biweekly: 14, every_4_weeks: 28, one_time: 28 }[appt.frequency];
   const nextDate = addDaysYmd(ymd(appt.start_at, tz), rebookDays);
-
-  const rebookWeeks = Math.round(rebookDays / 7);
   const canChange = !closed && appt.status !== "completed";
   const canMove = ["requested", "unconfirmed", "confirmed"].includes(appt.status); // not once on the way
   const pillar = "flex flex-col items-center gap-1.5 rounded-2xl px-1 py-3 text-xs font-semibold text-brand hover:bg-brand-soft";
@@ -138,7 +136,7 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
             <a href={`sms:${c.phone}&body=${encodeURIComponent(onMyWay)}`} className={pillar}><Van size={22} />On my way</a>
           )}
           {canMove && <a href="#reschedule" className={pillar}><Calendar size={22} />Reschedule</a>}
-          {canChange && <Link href={`/appointments/${id}/services`} className={pillar}><Pencil size={22} />Edit services</Link>}
+          {canChange && <Link href={`/appointments/${id}/services`} className={pillar}><Pencil size={22} />Edit price</Link>}
           <Link href={`/appointments/new?client=${c.id}&date=${nextDate}&time=${hm(appt.start_at, tz)}`} className={pillar}>
             <Plus size={22} />Book again
           </Link>
@@ -203,48 +201,35 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
 
         <section className="space-y-2">
           <div className="flex items-center justify-between">
-            <h2 className="section-label">Pets and services</h2>
+            <h2 className="section-label">Home and price</h2>
             {canChange && <Link href={`/appointments/${id}/services`} className="text-sm font-semibold text-brand">Edit</Link>}
           </div>
-          {appt.pets.map((p) => (
-            <div key={p.appointment_pet_id} className="card divide-y divide-line">
-              <div className="flex items-center gap-3 px-4 py-3">
-                <PetPhoto petId={p.pet_id} version={p.photo_version} name={p.name} />
-                <div className="min-w-0">
-                  <div className="text-lg font-bold">{p.name}</div>
-                  <div className="text-sm text-muted">{[p.breed, sizeLabel(p.size_class)].filter(Boolean).join(" · ")}</div>
-                </div>
+          <div className="card divide-y divide-line">
+            {home && (
+              <Link href={`/clients/${c.id}/homes/${home.id}`} className="block px-4 py-3">
+                <div className="text-lg font-bold">{home.label} · {homeSizeLabel(home)}</div>
+                {(home.access_method || home.access_code) && (
+                  <div className="text-sm">🔑 {[accessLabel(home.access_method), home.access_code].filter(Boolean).join(" · ")}</div>
+                )}
+                {home.parking_notes && <div className="text-sm text-muted">🚗 {home.parking_notes}</div>}
+                {home.pets_in_home && <div className="text-sm text-warn">🐾 {home.pets_in_home}</div>}
+                {home.product_preferences && <div className="text-sm text-muted">🧴 {home.product_preferences}</div>}
+                {home.notes && <p className="mt-1 whitespace-pre-line text-sm text-muted">{home.notes}</p>}
+              </Link>
+            )}
+            {appt.lines.map((l) => (
+              <div key={l.id} className="flex items-center gap-3 px-4 py-2.5">
+                <span className="min-w-0 flex-1">{l.name}{l.qty > 1 ? ` × ${l.qty}` : ""}</span>
+                <span className="font-semibold tabular-nums">{money(l.price_cents)}</span>
               </div>
-              {vaccines.some((v) => v.pet_id === p.pet_id) && (
-                <div className="space-y-1 px-4 py-3">
-                  {vaccines.filter((v) => v.pet_id === p.pet_id).map((v) => (
-                    <Notice key={v.name} kind={v.expired ? "error" : "warn"}>
-                      💉 {alertText(v)}{v.expired ? " — ask for the new certificate" : ""}
-                    </Notice>
-                  ))}
-                  <Link href={`/clients/${c.id}/pets/${p.pet_id}`} className="block text-xs font-semibold text-brand">Update vaccines</Link>
-                </div>
-              )}
-              {(p.behavior || p.notes) && (
-                <div className="space-y-2 px-4 py-3">
-                  {p.behavior && <Notice kind="warn">{p.behavior}</Notice>}
-                  {p.notes && <p className="whitespace-pre-line text-sm text-muted">{p.notes}</p>}
-                </div>
-              )}
-              {p.services.map((s) => (
-                <div key={s.id} className="flex items-center gap-3 px-4 py-3">
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-medium">{s.name}</span>
-                    <span className="flex items-center gap-1 text-sm text-muted"><Clock size={14} />{minutesLabel(s.duration_min)}</span>
-                  </span>
-                  <span className="font-semibold">{money(s.price_cents)}</span>
-                </div>
-              ))}
+            ))}
+            <div className="flex items-center gap-2 px-4 py-2.5 text-sm text-muted">
+              <Clock size={14} />{minutesLabel(minutes)}
             </div>
-          ))}
+          </div>
           <div className="flex justify-between px-1 text-lg font-bold">
             <span>Total</span>
-            <span>{money(total)}</span>
+            <span data-testid="appt-total">{money(total)}</span>
           </div>
         </section>
 
@@ -256,7 +241,7 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
                 {(c.first_name[0] ?? "") + (c.last_name[0] ?? "")}
               </span>
               <span className="flex-1 font-semibold">{fullName(c)}</span>
-              <span className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-bold text-brand-strong">every {rebookWeeks} weeks</span>
+              <span className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-bold text-brand-strong">{FREQUENCY_LABEL[appt.frequency]}</span>
             </Link>
             <PhoneLink phone={c.phone} label={phoneLabel(c.phone)} className="flex w-full items-center gap-3 px-4 py-3 text-brand">
               <Phone size={18} /> {phoneLabel(c.phone)}

@@ -9,13 +9,13 @@ import type { ImportedClient } from "./clients-csv";
 export type ImportReport = {
   created: number;
   existing: number;
-  pets: number;
+  homes: number;
   appointments: number;
   problems: string[];
   moreUpcoming: string[]; // clients with more than one upcoming visit: only the next one comes over
 };
 
-const IMPORTED_NOTE = "Imported from the old app. Check the pets and add the services before checkout.";
+const IMPORTED_NOTE = "Imported from the old app. Set the price (Edit price) before checkout.";
 
 export async function writeClients(
   sql: Sql,
@@ -23,7 +23,7 @@ export async function writeClients(
   clients: ImportedClient[],
   options: { appointments: boolean },
 ): Promise<ImportReport> {
-  const report: ImportReport = { created: 0, existing: 0, pets: 0, appointments: 0, problems: [], moreUpcoming: [] };
+  const report: ImportReport = { created: 0, existing: 0, homes: 0, appointments: 0, problems: [], moreUpcoming: [] };
   const local = (date: string, time: string) => fromZonedTime(`${date}T${time}:00`, target.timezone);
   const now = Date.now();
 
@@ -36,7 +36,7 @@ export async function writeClients(
     report.existing = clients.length - fresh.length;
     if (fresh.length === 0) return;
 
-    // 1. Clients. They already received texts from the business in the old app, so text consent carries over.
+    // 1. Clients.
     const inserted = await tx`
       insert into clients ${tx(
         fresh.map((c) => ({
@@ -52,7 +52,6 @@ export async function writeClients(
           lat: c.lat,
           lng: c.lng,
           marketing_opt_in: c.marketing,
-          sms_consent_at: new Date(),
           source: "import",
           imported_last_service_at: c.lastService ? local(c.lastService.date, c.lastService.start) : null,
           imported_total_sales_cents: c.totalSalesCents,
@@ -68,21 +67,27 @@ export async function writeClients(
     );
     if (notes.length) await tx`insert into client_notes ${tx(notes)}`;
 
-    // 3. Pets.
-    const petRows = fresh.flatMap((c) =>
-      c.pets.map((p) => ({
-        client_id: idByPhone.get(c.phone)!,
-        name: p.name.slice(0, 80),
-        breed: p.breed?.slice(0, 120) ?? null,
-        rebook_every_days: c.frequencyDays,
-      })),
-    );
-    const pets = petRows.length ? await tx`insert into pets ${tx(petRows)} returning id, client_id` : [];
-    report.pets = pets.length;
-    const petsByClient = new Map<string, string[]>();
-    for (const p of pets) petsByClient.set(p.client_id, [...(petsByClient.get(p.client_id) ?? []), p.id]);
+    // 3. One home per client, at their address.
+    const homes = await tx`
+      insert into homes ${tx(
+        fresh.map((c) => ({
+          client_id: idByPhone.get(c.phone)!,
+          address_line: c.addressLine,
+          city: c.city,
+          state: c.state,
+          zip: c.zip,
+          lat: c.lat,
+          lng: c.lng,
+          bedrooms: c.home.bedrooms,
+          full_baths: c.home.fullBaths,
+          half_baths: c.home.halfBaths,
+        })),
+      )}
+      returning id, client_id`;
+    report.homes = homes.length;
+    const homeByClient = new Map(homes.map((h) => [h.client_id as string, h.id as string]));
 
-    // 4. Each client's next visit (only future ones), with all their pets on it.
+    // 4. Each client's next visit (only future ones), at their home. The price is set later.
     if (!options.appointments) return;
     const visits = fresh.flatMap((c) => {
       if (!c.next) return [];
@@ -111,8 +116,7 @@ export async function writeClients(
     if (visits.length === 0) return;
     const appts = await tx`insert into appointments ${tx(visits)} returning id, client_id`;
     report.appointments = appts.length;
-    const links = appts.flatMap((a) => (petsByClient.get(a.client_id) ?? []).map((pet_id) => ({ appointment_id: a.id, pet_id })));
-    if (links.length) await tx`insert into appointment_pets ${tx(links)}`;
+    await tx`insert into appointment_homes ${tx(appts.map((a) => ({ appointment_id: a.id, home_id: homeByClient.get(a.client_id)! })))}`;
   });
   return report;
 }

@@ -46,3 +46,6 @@ next-env.d.ts
 *.csv
 !replica/features.csv
 !replica/**/features.csv
+
+# e2e screenshots
+/test-results/

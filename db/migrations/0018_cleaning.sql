@@ -149,7 +149,7 @@ alter table quote_request_photos enable row level security;
 -- ============================================================ abandoned bookings
 
 alter table booking_drafts rename column pets to summary;          -- "Regular Clean · Weekly · 3 bd / 2 ba"
-alter table booking_drafts rename column pet_details to details;   -- {serviceId, frequency, home, extras, totalCents}
+alter table booking_drafts rename column pet_details to details;   -- {service, frequency, bedrooms, fullBaths, halfBaths, extras, totalCents}
 alter table booking_drafts alter column step set default 'contact';
 
 -- ============================================================ email templates

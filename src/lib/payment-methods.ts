@@ -3,6 +3,7 @@ export const PAYMENT_METHODS = [
   { value: "cash", label: "Cash" },
   { value: "zelle", label: "Zelle" },
   { value: "venmo", label: "Venmo" },
+  { value: "card", label: "Card" },
   { value: "check", label: "Check" },
   { value: "bitcoin", label: "Bitcoin" },
   { value: "other", label: "Other" },

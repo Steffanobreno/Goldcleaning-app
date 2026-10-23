@@ -18,13 +18,12 @@ export async function report(staff: StaffContext, from: string, to: string, grou
   const biz = staff.businessId;
 
   const [totals, payments, methods, services, buckets, topClients, newClients] = await Promise.all([
-    sql<{ appts: number; finished: number; cancelled: number; no_show: number; pets: number; dogs_done: number;
+    sql<{ appts: number; finished: number; cancelled: number; no_show: number;
           clients: number; expected: number; unpaid: number }[]>`
       with a as (
         select a.id, a.client_id, a.status,
-          coalesce((select sum(s.price_cents) from appointment_pets ap join appointment_services s on s.appointment_pet_id = ap.id
-                    where ap.appointment_id = a.id), 0) as price,
-          (select count(*) from appointment_pets ap where ap.appointment_id = a.id) as pets,
+          coalesce((select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+                    where ah.appointment_id = a.id), 0) as price,
           exists (select 1 from invoices i where i.appointment_id = a.id and i.status = 'closed') as paid
         from appointments a
         where a.business_id = ${biz} and a.start_at >= ${start} and a.start_at < ${end}
@@ -33,8 +32,6 @@ export async function report(staff: StaffContext, from: string, to: string, grou
              count(*) filter (where status = 'completed')::int as finished,
              count(*) filter (where status = 'cancelled')::int as cancelled,
              count(*) filter (where status = 'no_show')::int as no_show,
-             coalesce(sum(pets) filter (where status = any(${LIVE})), 0)::int as pets,
-             coalesce(sum(pets) filter (where status = 'completed'), 0)::int as dogs_done,
              count(distinct client_id) filter (where status = any(${LIVE}))::int as clients,
              coalesce(sum(price) filter (where status = any(${LIVE})), 0)::int as expected,
              coalesce(sum(price) filter (where status = 'completed' and not paid), 0)::int as unpaid
@@ -49,19 +46,19 @@ export async function report(staff: StaffContext, from: string, to: string, grou
       where i.business_id = ${biz} and p.received_at >= ${start} and p.received_at < ${end}
       group by p.method order by sum(p.amount_cents + p.tip_cents) desc`,
     sql<{ name: string; count: number; revenue: number }[]>`
-      select s.name, count(*)::int as count, sum(s.price_cents)::int as revenue
-      from appointments a join appointment_pets ap on ap.appointment_id = a.id
-      join appointment_services s on s.appointment_pet_id = ap.id
+      select coalesce(sv.name, 'Other') as name, count(*)::int as count,
+             sum(coalesce((select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+                    where ah.appointment_id = a.id), 0))::int as revenue
+      from appointments a left join services sv on sv.id = a.service_id
       where a.business_id = ${biz} and a.start_at >= ${start} and a.start_at < ${end} and a.status = any(${LIVE})
-      group by s.name order by sum(s.price_cents) desc, count(*) desc limit 15`,
-    // One row per day/week/month: visits and dogs by visit date, money by payment date.
-    sql<{ bucket: string; appts: number; dogs: number; expected: number; collected: number }[]>`
+      group by 1 order by 3 desc, 2 desc limit 15`,
+    // One row per day/week/month: visits by visit date, money by payment date.
+    sql<{ bucket: string; appts: number; expected: number; collected: number }[]>`
       with v as (
         select to_char(date_trunc(${group}, a.start_at at time zone ${tz}), 'YYYY-MM-DD') as bucket,
                count(*)::int as appts,
-               sum((select count(*) from appointment_pets ap where ap.appointment_id = a.id))::int as dogs,
-               sum(coalesce((select sum(s.price_cents) from appointment_pets ap join appointment_services s on s.appointment_pet_id = ap.id
-                             where ap.appointment_id = a.id), 0))::int as expected
+               sum(coalesce((select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+                    where ah.appointment_id = a.id), 0))::int as expected
         from appointments a
         where a.business_id = ${biz} and a.start_at >= ${start} and a.start_at < ${end} and a.status = any(${LIVE})
         group by 1),
@@ -71,7 +68,7 @@ export async function report(staff: StaffContext, from: string, to: string, grou
         from payments p join invoices i on i.id = p.invoice_id
         where i.business_id = ${biz} and p.received_at >= ${start} and p.received_at < ${end}
         group by 1)
-      select coalesce(v.bucket, m.bucket) as bucket, coalesce(v.appts, 0) as appts, coalesce(v.dogs, 0) as dogs,
+      select coalesce(v.bucket, m.bucket) as bucket, coalesce(v.appts, 0) as appts,
              coalesce(v.expected, 0) as expected, coalesce(m.collected, 0) as collected
       from v full join m on m.bucket = v.bucket
       order by 1`,

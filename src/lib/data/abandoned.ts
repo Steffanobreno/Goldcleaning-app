@@ -9,10 +9,19 @@ import { isUuid } from "../format";
 // or called from the app; otherwise Abandoned. Finishing in one go doesn't count as abandoned.
 
 export type DraftStatus = "abandoned" | "contacted" | "recovered";
-export type DraftPet = { name: string; breed: string; size: string; service: string; addons: string[] };
+/** What they had picked when they stopped (filled by the booking page). */
+export type DraftDetails = {
+  service: string;
+  frequency: string; // "Every 2 weeks"
+  bedrooms: number;
+  fullBaths: number;
+  halfBaths: number;
+  extras: string[]; // "Inside Oven × 2"
+  totalCents: number;
+};
 export type Draft = {
   id: string; phone: string; first_name: string | null; last_name: string | null; email: string | null;
-  address_line: string | null; city: string | null; zip: string | null; pets: string | null; pet_details: DraftPet[] | null;
+  address_line: string | null; city: string | null; zip: string | null; summary: string | null; details: DraftDetails | null;
   step: string; chosen_start: Date | null; created_at: Date; updated_at: Date; reminded_at: Date | null;
   contacted_at: Date | null; client_id: string | null; booked_id: string | null; status: DraftStatus; revenue_cents: number;
 };
@@ -29,13 +38,13 @@ const drafts = (staff: StaffContext, extra = sql``, limit = 500) => sql<Draft[]>
       and d.updated_at < now() - interval '20 minutes'
       and not (d.completed_at is not null and d.completed_at < d.updated_at + interval '20 minutes'
                and d.reminded_at is null and d.contacted_at is null))
-  select d.id, d.phone, d.first_name, d.last_name, d.email, d.address_line, d.city, d.zip, d.pets, d.pet_details, d.step,
+  select d.id, d.phone, d.first_name, d.last_name, d.email, d.address_line, d.city, d.zip, d.summary, d.details, d.step,
     d.chosen_start, d.created_at, d.updated_at, d.reminded_at, d.contacted_at, d.client_id, d.booked_id,
     case when d.booked_id is not null then 'recovered'
          when d.reminded_at is not null or d.contacted_at is not null then 'contacted'
          else 'abandoned' end as status,
-    coalesce((select sum(s.price_cents) from appointment_pets ap join appointment_services s on s.appointment_pet_id = ap.id
-              where ap.appointment_id = d.booked_id), 0)::int as revenue_cents
+    coalesce((select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+              where ah.appointment_id = d.booked_id), 0)::int as revenue_cents
   from d where true ${extra}
   order by d.updated_at desc
   limit ${limit}`;
@@ -61,9 +70,9 @@ export async function draftStats(staff: StaffContext) {
 }
 
 export const STEP_NAMES: Record<string, string> = {
-  phone: "Phone number",
   contact: "Name and email",
+  date: "Select time",
   address: "Address",
-  times: "Select time",
-  review: "Review and sign",
+  access: "Access",
+  review: "Review",
 };

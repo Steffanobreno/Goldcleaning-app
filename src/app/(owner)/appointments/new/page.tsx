@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireStaff } from "@/lib/auth";
-import { clientHistory, fullName, getClient, listClients, listPets } from "@/lib/data/clients";
-import { listServices } from "@/lib/data/services";
+import { clientHistory, fullName, getClient, listClients } from "@/lib/data/clients";
+import { listHomes } from "@/lib/data/homes";
+import { loadCatalog } from "@/lib/data/catalog";
+import { sql } from "@/lib/db";
 import { dayLabel, isYmd, phoneLabel, timeLabel, todayYmd, zonedToUtc } from "@/lib/format";
 import { ButtonLink, Empty, Input, Page, PageHeader } from "@/components/ui";
 import { createAppointmentAction } from "../actions";
 import { BookingForm } from "../booking-form";
-import { listGroomers } from "@/lib/data/staff";
 import { nearbyDays } from "@/lib/data/appointments";
-import { alertText, vaccineAlerts } from "@/lib/data/vaccines";
 
 export const metadata: Metadata = { title: "New appointment" };
 
@@ -21,10 +21,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps<"/a
   const clientId = typeof sp.client === "string" ? sp.client : null;
   const date = isYmd(sp.date) ? sp.date : todayYmd(staff.timezone);
   const time = typeof sp.time === "string" && /^\d{2}:\d{2}$/.test(sp.time) ? sp.time : "09:00";
-  const [client, groomers] = await Promise.all([
-    clientId ? getClient(staff, clientId) : null,
-    listGroomers(staff, { activeOnly: true }),
-  ]);
+  const client = clientId ? await getClient(staff, clientId) : null;
 
   // Step 1: pick the client.
   if (!client) {
@@ -40,7 +37,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps<"/a
             <input type="hidden" name="time" value={time} />
             {typeof sp.groomer === "string" && <input type="hidden" name="groomer" value={sp.groomer} />}
             <label className="sr-only" htmlFor="q">Search clients</label>
-            <Input id="q" name="q" type="search" defaultValue={q} placeholder="Search by name, phone or pet" autoFocus />
+            <Input id="q" name="q" type="search" defaultValue={q} placeholder="Search by name, phone or address" autoFocus />
           </form>
           <ButtonLink kind="secondary" href="/clients/new" className="w-full">New client</ButtonLink>
           {clients.length === 0 ? (
@@ -56,7 +53,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps<"/a
                     <span className="min-w-0">
                       <span className="block font-semibold">{fullName(c)}</span>
                       <span className="block truncate text-sm text-muted">
-                        {[c.pet_names, phoneLabel(c.phone)].filter(Boolean).join(" · ")}
+                        {[c.home_summary, phoneLabel(c.phone)].filter(Boolean).join(" · ")}
                       </span>
                     </span>
                   </Link>
@@ -69,15 +66,18 @@ export default async function NewAppointmentPage({ searchParams }: PageProps<"/a
     );
   }
 
-  // Step 2: pets, services and time.
-  const [pets, services, history, nearby] = await Promise.all([
-    listPets(staff, client.id),
-    listServices(staff),
+  // Step 2: home, service, extras and time.
+  const [homes, catalog, history, slots] = await Promise.all([
+    listHomes(staff, client.id),
+    loadCatalog(staff.businessId),
     clientHistory(staff, client.id),
-    nearbyDays(staff, client.zip),
+    sql<{ time: string; label: string }[]>`
+      select distinct to_char(start_time, 'HH24:MI') as time, label from booking_slots
+      where business_id = ${staff.businessId} order by time`,
   ]);
+  const homeParam = typeof sp.home === "string" ? sp.home : undefined;
+  const nearby = await nearbyDays(staff, homes.find((h) => h.id === homeParam)?.zip ?? homes[0]?.zip ?? client.zip);
   const count = (status: string) => history.filter((a) => a.status === status).length;
-  const vaccines = await vaccineAlerts(staff, pets.map((p) => p.id), date);
   return (
     <>
       <PageHeader title={`Book ${fullName(client)}`} back={`/clients/${client.id}`} />
@@ -101,9 +101,9 @@ export default async function NewAppointmentPage({ searchParams }: PageProps<"/a
             ))}
           </dl>
         </div>
-        {nearby.length > 0 && pets.length > 0 && (
+        {nearby.length > 0 && homes.length > 0 && (
           <section className="card space-y-1 border-success bg-success-soft px-4 py-3">
-            <h2 className="text-sm font-bold text-success">🚐 You&apos;re already near {client.first_name} on</h2>
+            <h2 className="text-sm font-bold text-success">🧽 You&apos;re already near {client.first_name} on</h2>
             <ul className="divide-y divide-success/20 text-sm">
               {nearby.map((n) => (
                 <li key={n.date}>
@@ -121,19 +121,19 @@ export default async function NewAppointmentPage({ searchParams }: PageProps<"/a
             <p className="text-xs text-muted">Tap one to book right after that visit.</p>
           </section>
         )}
-        {pets.length === 0 ? (
-          <Empty title="This client has no pets yet">
-            <ButtonLink href={`/clients/${client.id}/pets/new`} className="mt-2">Add a pet</ButtonLink>
+        {homes.length === 0 ? (
+          <Empty title="This client has no home yet">
+            <ButtonLink href={`/clients/${client.id}/homes/new`} className="mt-2">Add the home</ButtonLink>
           </Empty>
         ) : (
           <BookingForm
             action={createAppointmentAction.bind(null, client.id)}
-            pets={pets.map((p) => ({ ...p, vaccineAlert: vaccines.filter((v) => v.pet_id === p.id).map(alertText).join(" · ") || null }))}
-            services={services}
+            homes={homes.map((h) => ({ ...h, address: [h.address_line, h.city, h.zip].filter(Boolean).join(", ") }))}
+            catalog={catalog}
+            defaultHome={homeParam}
             defaultDate={date}
             defaultTime={time}
-            groomers={groomers}
-            defaultGroomer={typeof sp.groomer === "string" ? sp.groomer : staff.staffId}
+            slotTimes={slots}
           />
         )}
       </Page>

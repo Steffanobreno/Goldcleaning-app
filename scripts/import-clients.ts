@@ -22,7 +22,7 @@ async function main() {
   const report = await writeClients(sql, { businessId: b.id, staffId: b.staff_id, timezone: b.timezone }, clients, {
     appointments: process.argv.includes("--appointments"),
   });
-  console.log(`clients created: ${report.created}, already there: ${report.existing}, pets: ${report.pets}, upcoming visits: ${report.appointments}`);
+  console.log(`clients created: ${report.created}, already there: ${report.existing}, homes: ${report.homes}, upcoming visits: ${report.appointments}`);
   console.log(`rows skipped while reading: ${problems.length}, problems while writing: ${report.problems.length}, clients with more than one upcoming visit: ${report.moreUpcoming.length}`);
   await sql.end();
 }

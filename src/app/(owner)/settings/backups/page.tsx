@@ -29,7 +29,7 @@ export default async function BackupsPage() {
             <Notice kind="success">Working. Last backup: {when}.</Notice>
           )}
           <p className="text-sm text-muted">
-            Every Sunday night a free script in the Woofers Google account saves a copy of everything (clients, pets, visits,
+            Every Sunday night a free script in the Woofers Google account saves a copy of everything (clients, homes, visits,
             payments, messages, settings) in a &quot;Woofers backups&quot; folder on Google Drive, plus the client list as a
             spreadsheet. It keeps the last 12 weeks. This copy is separate from the app&apos;s database.
           </p>
@@ -51,7 +51,7 @@ export default async function BackupsPage() {
             <ButtonLink href="/api/export/clients" kind="secondary" prefetch={false}>Clients (spreadsheet)</ButtonLink>
           </div>
         </Card>
-        <p className="px-1 text-xs text-muted">Not in the backup: passwords, pet photos and drawn signatures (the typed name and date are kept).</p>
+        <p className="px-1 text-xs text-muted">Not in the backup: passwords, quote photos and drawn signatures (the typed name and date are kept).</p>
       </Page>
     </>
   );

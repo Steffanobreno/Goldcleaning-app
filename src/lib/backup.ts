@@ -1,10 +1,10 @@
 import "server-only";
 import { sql } from "./db";
 
-// A full copy of one business's data as JSON: clients, pets, visits, services, money,
+// A full copy of one business's data as JSON: clients, homes, visits, price list, money,
 // messages and settings. The weekly Google Drive backup (Settings → Backups) saves it,
 // together with the client list as a spreadsheet. Left out: passwords and login sessions,
-// the secret keys, pet photos and drawn signatures (pictures would make the file too big;
+// the secret keys, quote request photos and drawn signatures (pictures would make the file too big;
 // the typed signature name and date are kept).
 
 export async function buildBackup(businessId: string) {
@@ -15,17 +15,18 @@ export async function buildBackup(businessId: string) {
     working_hours: sql`select w.* from working_hours w join staff s on s.id = w.staff_id where s.business_id = ${b}`,
     time_off: sql`select t.* from time_off t join staff s on s.id = t.staff_id where s.business_id = ${b}`,
     services: sql`select * from services where business_id = ${b}`,
-    service_prices: sql`select p.* from service_prices p join services s on s.id = p.service_id where s.business_id = ${b}`,
+    service_rates: sql`select r.* from service_rates r join services s on s.id = r.service_id where s.business_id = ${b}`,
+    booking_slots: sql`select * from booking_slots where business_id = ${b}`,
     clients: sql`select * from clients where business_id = ${b}`,
     client_notes: sql`select n.* from client_notes n join clients c on c.id = n.client_id where c.business_id = ${b}`,
-    pets: sql`select p.* from pets p join clients c on c.id = p.client_id where c.business_id = ${b}`,
-    vaccines: sql`select v.* from vaccines v join pets p on p.id = v.pet_id join clients c on c.id = p.client_id where c.business_id = ${b}`,
+    homes: sql`select h.* from homes h join clients c on c.id = h.client_id where c.business_id = ${b}`,
     appointment_series: sql`select * from appointment_series where business_id = ${b}`,
     appointments: sql`select * from appointments where business_id = ${b}`,
-    appointment_pets: sql`select ap.* from appointment_pets ap join appointments a on a.id = ap.appointment_id where a.business_id = ${b}`,
-    appointment_services: sql`
-      select s.* from appointment_services s join appointment_pets ap on ap.id = s.appointment_pet_id
-      join appointments a on a.id = ap.appointment_id where a.business_id = ${b}`,
+    appointment_homes: sql`select ah.* from appointment_homes ah join appointments a on a.id = ah.appointment_id where a.business_id = ${b}`,
+    appointment_lines: sql`
+      select l.* from appointment_lines l join appointment_homes ah on ah.id = l.appointment_home_id
+      join appointments a on a.id = ah.appointment_id where a.business_id = ${b}`,
+    quote_requests: sql`select * from quote_requests where business_id = ${b}`,
     invoices: sql`select * from invoices where business_id = ${b}`,
     invoice_items: sql`select it.* from invoice_items it join invoices i on i.id = it.invoice_id where i.business_id = ${b}`,
     payments: sql`select p.* from payments p join invoices i on i.id = p.invoice_id where i.business_id = ${b}`,
@@ -48,7 +49,7 @@ export async function buildBackup(businessId: string) {
     delete biz.vapid_private;
   }
   return {
-    format: "woofers-backup",
+    format: "goldcleaning-backup",
     version: 1,
     created_at: new Date().toISOString(),
     counts: Object.fromEntries(names.map((n) => [n, data[n].length])),

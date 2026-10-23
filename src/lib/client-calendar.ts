@@ -16,30 +16,29 @@ export async function clientEvent(by: { id: string } | { token: string }) {
   const token = "token" in by ? by.token : null;
   const [a] = await sql<{ id: string; start_at: Date; end_at: Date; updated_at: Date; status: string; address_line: string | null;
                          zip: string | null; public_token: string; business: string; phone: string | null; timezone: string;
-                         pets: string | null; detail: string | null }[]>`
+                         service: string | null; detail: string | null }[]>`
     select a.id, a.start_at, a.end_at, a.updated_at, a.status, a.address_line, a.zip, a.public_token,
            b.name as business, b.phone, b.timezone,
-           (select string_agg(p.name, ' & ' order by p.name) from appointment_pets ap join pets p on p.id = ap.pet_id
-             where ap.appointment_id = a.id) as pets,
-           (select string_agg(p.name || ': ' || coalesce((select string_agg(s.name, ', ' order by s.created_at)
-                     from appointment_services s where s.appointment_pet_id = ap.id), ''), E'\n' order by p.name)
-             from appointment_pets ap join pets p on p.id = ap.pet_id where ap.appointment_id = a.id) as detail
+           (select sv.name from services sv where sv.id = a.service_id) as service,
+           (select string_agg(l.name || case when l.qty > 1 then ' × ' || l.qty else '' end, E'\n' order by l.created_at, l.id)
+             from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+             where ah.appointment_id = a.id and l.kind in ('service', 'extra')) as detail
     from appointments a join businesses b on b.id = a.business_id
     where (${id}::uuid is not null and a.id = ${id}) or (${token}::text is not null and a.public_token = ${token})
     limit 1`;
   if (!a || !ADDABLE.includes(a.status)) return null;
   const link = `${appUrl()}/a/${a.public_token}`;
   const event: IcsEvent = {
-    uid: `${a.id}@woofers`,
+    uid: `${a.id}@goldcleaning`,
     start: a.start_at,
     end: a.end_at,
     updated: a.updated_at,
-    title: `${a.pets ? `${a.pets}'s grooming` : "Dog grooming"} · ${a.business}`,
+    title: `${a.service ?? "House cleaning"} · ${a.business}`,
     location: [a.address_line, a.zip].filter(Boolean).join(" ") || null,
     description: [
       a.detail,
       `See, confirm or cancel: ${link}`,
-      a.phone ? `Questions? Text us at ${phoneLabel(a.phone)}.` : null,
+      a.phone ? `Questions? Call or text us at ${phoneLabel(a.phone)}.` : null,
     ].filter(Boolean).join("\n\n"),
     url: link,
     alarmsMinutesBefore: [24 * 60, 60],

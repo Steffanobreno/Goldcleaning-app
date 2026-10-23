@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireStaff } from "@/lib/auth";
-import { listRange, type AppointmentListItem } from "@/lib/data/appointments";
+import { listRange, visitLabel, type AppointmentListItem } from "@/lib/data/appointments";
 import { listTimeOff, type TimeOff } from "@/lib/data/time-off";
 import { sql } from "@/lib/db";
 import { addDaysYmd, dayLabel, dayRangeUtc, hm, isYmd, money, timeLabel, todayYmd, weekdayOf, ymd, zonedToUtc } from "@/lib/format";
@@ -201,13 +201,12 @@ function DayTimeline({ date, appts, blocks, hours, tz, multi, groomer }: {
   const shown = cut.map((b) => ({ ...b, s: Math.max(b.s, first), e: Math.max(Math.min(b.e, last), Math.max(b.s, first) + 30) }));
   const lane = lanes([...placed.map((p) => ({ id: p.a.id, s: p.s, e: p.e })), ...shown.map((b) => ({ id: b.t.id, s: b.s, e: b.e }))]);
   const total = visible.reduce((s, a) => s + a.total_cents, 0);
-  const dogs = visible.reduce((s, a) => s + a.pets.length, 0);
 
   return (
     <section className="space-y-2" aria-label="Day schedule">
       <div className="flex items-center justify-between gap-2 px-1">
         <p className="text-sm font-semibold">
-          {hours ? `${visible.length} appts · ${dogs} dog${dogs === 1 ? "" : "s"} · ${money(total)}` : "Day off"}
+          {hours ? `${visible.length} cleaning${visible.length === 1 ? "" : "s"} · ${money(total)}` : "Day off"}
           {appts.length > visible.length && <span className="font-normal text-muted"> · {appts.length - visible.length} cancelled</span>}
         </p>
         {visible.length > 0 && (
@@ -271,7 +270,7 @@ function DayTimeline({ date, appts, blocks, hours, tz, multi, groomer }: {
                 {multi && <span aria-label={a.staff_name} title={a.staff_name} className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: a.staff_color }} />}
                 {a.series_id && <span aria-label="Repeats" className="text-success">↻ </span>}{a.client_name}
               </div>
-              <div className="truncate text-muted">{a.pets.map((p) => `${p.name} · ${p.services.join(", ")}`).join(" | ")}</div>
+              <div className="truncate text-muted">{visitLabel(a)}</div>
               <div className="truncate text-muted">{a.address_line}</div>
             </Link>
           );
@@ -297,7 +296,7 @@ function WeekGrid({ start, today, appts, blocksOn, hoursOf, tz }: {
       <div className="grid grid-cols-[2.25rem_repeat(7,1fr)] border-b border-line text-center">
         <span />
         {days.map((d) => {
-          const n = visible.filter((a) => ymd(a.start_at, tz) === d).reduce((s, a) => s + a.pets.length, 0);
+          const n = visible.filter((a) => ymd(a.start_at, tz) === d).length;
           return (
             <Link key={d} href={`/calendar?view=day&date=${d}`} className="py-1.5">
               <span className="block text-[11px] font-semibold text-muted">{fmt(d, { weekday: "short" })}</span>
@@ -349,7 +348,7 @@ function WeekGrid({ start, today, appts, blocksOn, hoursOf, tz }: {
                     className={`absolute overflow-hidden rounded-md border-l-[3px] bg-navy px-0.5 py-0.5 text-[10px] leading-tight text-white ${STATUS_BAR[a.status] ?? ""}`}
                     style={{ top: top(s) + 1, height: Math.max(top(e) - top(s) - 2, 18), left: `${(l.lane / l.of) * 100}%`, width: `calc(${100 / l.of}% - 2px)` }}>
                     <span className="block font-bold">{a.client_name.split(" ")[0]}</span>
-                    <span className="block opacity-80">{a.pets.map((p) => p.name).join(", ")}</span>
+                    <span className="block opacity-80">{visitLabel(a)}</span>
                   </Link>
                 );
               })}
@@ -374,7 +373,6 @@ function MonthGrid({ start, count, month, today, onDay, blocksOn, working }: {
       <div className="grid grid-cols-7">
         {days.map((d) => {
           const list = onDay(d).filter((a) => !HIDDEN.includes(a.status));
-          const dogs = list.reduce((s, a) => s + a.pets.length, 0);
           const inMonth = d.startsWith(month);
           return (
             <Link key={d} href={`/calendar?view=day&date=${d}`}
@@ -391,7 +389,6 @@ function MonthGrid({ start, count, month, today, onDay, blocksOn, working }: {
                   <span className={`block truncate rounded px-1 text-[10px] leading-4 ${BLOCK_STYLE}`}>{blockTitle(blocksOn(d)[0])}</span>
                 )}
               </span>
-              {dogs > 0 && <span className="mt-0.5 block text-[10px] text-muted">🐶 {dogs}</span>}
             </Link>
           );
         })}
@@ -420,7 +417,7 @@ function Agenda({ start, today, onDay, blocksOn, working, tz }: {
               </h2>
               <span className="text-sm text-muted">
                 {off ? "Day off" : active.length
-                  ? `${active.length} appts · ${active.reduce((s, a) => s + a.pets.length, 0)} dogs · ${money(active.reduce((s, a) => s + a.total_cents, 0))}`
+                  ? `${active.length} cleaning${active.length === 1 ? "" : "s"} · ${money(active.reduce((s, a) => s + a.total_cents, 0))}`
                   : ""}
               </span>
             </div>
@@ -454,7 +451,7 @@ function Agenda({ start, today, onDay, blocksOn, working, tz }: {
                           <StatusBadge status={a.paid ? "paid" : a.status} />
                         </div>
                         <div className="truncate text-sm text-muted">
-                          {a.pets.map((p) => `${p.name} · ${p.services.join(", ")}`).join(" | ")}
+                          {visitLabel(a)}
                         </div>
                         <div className="flex justify-between gap-2 text-sm">
                           <span className="truncate text-muted">{a.address_line ?? a.city ?? ""}</span>

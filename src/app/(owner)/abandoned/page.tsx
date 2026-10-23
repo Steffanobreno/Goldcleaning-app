@@ -84,7 +84,7 @@ export default async function AbandonedPage({ searchParams }: PageProps<"/abando
                     <span className={`font-semibold ${STATUS[d.status].className}`}>{STATUS[d.status].label}</span>
                   </span>
                   <span className="block text-lg font-bold">{[d.first_name, d.last_name].filter(Boolean).join(" ") || "Unknown name"}</span>
-                  <span className="block text-sm text-muted">Abandoned step: {STEP_NAMES[d.step] ?? d.step}{d.pets ? ` · ${d.pets}` : ""}</span>
+                  <span className="block text-sm text-muted">Abandoned step: {STEP_NAMES[d.step] ?? d.step}{d.summary ? ` · ${d.summary}` : ""}</span>
                   <span className="block text-sm text-muted">
                     {d.status === "recovered" ? `Booked · ${money(d.revenue_cents)}`
                       : `Last contact: ${d.contacted_at ?? d.reminded_at ? ago((d.contacted_at ?? d.reminded_at)!) : "--"}`}

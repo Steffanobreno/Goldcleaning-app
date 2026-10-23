@@ -15,24 +15,26 @@ export async function GET(request: Request) {
 
   const rows = await sql<
     { id: string; start_at: Date; end_at: Date; status: string; address_line: string | null; notes: string | null;
-      client: string; phone: string; dogs: number; zip: string | null; detail: string | null; updated_at: Date; groomer: string | null }[]
+      client: string; phone: string; summary: string | null; zip: string | null; detail: string | null; updated_at: Date; groomer: string | null }[]
   >`
     select a.id, a.start_at, a.end_at, a.status, a.address_line, a.zip, a.notes, a.updated_at,
            trim(c.first_name || ' ' || c.last_name) as client, c.phone,
            (select st.name from staff st where st.id = a.staff_id and st.role <> 'owner') as groomer,
-           (select count(*) from appointment_pets ap where ap.appointment_id = a.id)::int as dogs,
-           -- One line per dog: "Loki (Cavapoo): Full Haircut - Medium, De-shedding"
-           (select string_agg(p.name || coalesce(' (' || p.breed || ')', '') || ': ' ||
-                     coalesce((select string_agg(s.name, ', ' order by s.created_at) from appointment_services s
-                               where s.appointment_pet_id = ap.id), ''), E'\n' order by p.name)
-            from appointment_pets ap join pets p on p.id = ap.pet_id where ap.appointment_id = a.id) as detail
+           -- "Regular Clean 3bd/2ba"
+           (select concat_ws(' ', sv.name, h.bedrooms || 'bd/' || h.full_baths || 'ba')
+            from appointment_homes ah join homes h on h.id = ah.home_id left join services sv on sv.id = a.service_id
+            where ah.appointment_id = a.id order by ah.created_at limit 1) as summary,
+           -- The price lines, one per line, then the access: "Lockbox · 1234"
+           (select string_agg(l.name || case when l.qty > 1 then ' × ' || l.qty else '' end, E'\n' order by l.created_at, l.id)
+            from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+            where ah.appointment_id = a.id) as detail
     from appointments a join clients c on c.id = a.client_id
     where a.business_id = ${business.id}
       and a.start_at > now() - interval '30 days' and a.start_at < now() + interval '180 days'
       and a.status in ('requested', 'unconfirmed', 'confirmed', 'en_route', 'in_progress', 'completed')
     order by a.start_at`;
 
-  // Blocked time shows up too, so the Google calendar shows when the van is busy.
+  // Blocked time shows up too, so the Google calendar shows when the team is busy.
   const blocks = await sql<{ id: string; start_at: Date; end_at: Date; reason: string | null; updated_at: Date }[]>`
     select t.id, t.start_at, t.end_at, t.reason, t.updated_at
     from time_off t join staff s on s.id = t.staff_id
@@ -41,12 +43,12 @@ export async function GET(request: Request) {
   const blockTitle = (t: (typeof blocks)[number]) => `Blocked${t.reason ? `: ${t.reason}` : ""}`;
 
   const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
-  // "Grace Bresnahan 1Dog", like the old app, so the week reads the same at a glance.
+  // "Ana Silva · Regular Clean 3bd/2ba", so the week reads at a glance.
   const titleOf = (r: (typeof rows)[number]) =>
-    `${r.status === "requested" ? "[Request] " : ""}${r.client} ${r.dogs}Dog${r.dogs === 1 ? "" : "s"}${r.groomer ? ` (${r.groomer})` : ""}`;
+    `${r.status === "requested" ? "[Request] " : ""}${r.client}${r.summary ? ` · ${r.summary}` : ""}${r.groomer ? ` (${r.groomer})` : ""}`;
   const descriptionOf = (r: (typeof rows)[number]) =>
     [r.detail, r.phone, r.notes, appUrl && `Open in the app: ${appUrl}/appointments/${r.id}`,
-     "Make changes in the Woofers app: changes made here are overwritten at the next sync."]
+     "Make changes in the Gold Cleaning app: changes made here are overwritten at the next sync."]
       .filter(Boolean).join("\n\n");
 
   if (url.searchParams.get("format") === "json") {
@@ -70,7 +72,7 @@ export async function GET(request: Request) {
           start: t.start_at.toISOString(),
           end: t.end_at.toISOString(),
           location: "",
-          description: "Blocked time in the Woofers app.",
+          description: "Blocked time in the Gold Cleaning app.",
         }))),
       },
       { headers: { "Cache-Control": "no-store" } },
@@ -79,11 +81,11 @@ export async function GET(request: Request) {
 
   const body = icsCalendar(business.name, business.timezone, [
     ...rows.map((r) => icsEventLines({
-      uid: `${r.id}@woofers`, start: r.start_at, end: r.end_at, updated: r.updated_at, title: titleOf(r),
+      uid: `${r.id}@goldcleaning`, start: r.start_at, end: r.end_at, updated: r.updated_at, title: titleOf(r),
       location: r.address_line ? [r.address_line, r.zip].filter(Boolean).join(" ") : null, description: descriptionOf(r),
     })),
     ...blocks.map((t) => icsEventLines({
-      uid: `block-${t.id}@woofers`, start: t.start_at, end: t.end_at, updated: t.updated_at, title: blockTitle(t),
+      uid: `block-${t.id}@goldcleaning`, start: t.start_at, end: t.end_at, updated: t.updated_at, title: blockTitle(t),
     })),
   ]);
   return new Response(body, {

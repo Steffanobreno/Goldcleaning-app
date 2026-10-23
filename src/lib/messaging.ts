@@ -27,7 +27,6 @@ export type Trigger =
   | "on_my_way"
   | "rebook"
   | "review_request"
-  | "vaccine_due"
   | "abandoned_booking";
 
 export type Template = {
@@ -70,21 +69,10 @@ type ApptContext = {
   phone: string;
   email: string | null;
   sms_ok: boolean;
-  pets: string | null;
+  service: string | null; // "Regular Clean · 3 bd / 2 ba"
+  total_cents: number;
   source: string;
 };
-
-/** Client-level context: their last visit date from the old app, all their pets. */
-async function clientContext(clientId: string, lastVisit: Date) {
-  const [row] = await sql<Omit<ApptContext, "id" | "start_at" | "status" | "public_token" | "source">[]>`
-    select b.id as business_id, b.name as business_name, b.phone as business_phone, b.timezone, b.website_url, b.review_url,
-           c.id as client_id, c.first_name, c.phone, c.email,
-           (c.sms_consent_at is not null and c.sms_opted_out_at is null) as sms_ok,
-           (select string_agg(p.name, ' & ' order by p.name) from pets p where p.client_id = c.id and p.deceased_at is null) as pets
-    from clients c join businesses b on b.id = c.business_id
-    where c.id = ${clientId}`;
-  return row ? ({ ...row, id: null, start_at: lastVisit, status: "completed", public_token: "", source: "import" } as ApptContext) : null;
-}
 
 async function autoMessagesOn(businessId: string) {
   const [b] = await sql<{ on: boolean }[]>`select auto_messages_enabled as on from businesses where id = ${businessId}`;
@@ -97,9 +85,14 @@ async function appointmentContext(appointmentId: string) {
            b.name as business_name, b.phone as business_phone, b.timezone, b.website_url, b.review_url,
            c.id as client_id, c.first_name, c.phone, c.email,
            (c.sms_consent_at is not null and c.sms_opted_out_at is null) as sms_ok,
-           (select string_agg(p.name, ' & ' order by p.name) from appointment_pets ap
-              join pets p on p.id = ap.pet_id where ap.appointment_id = a.id) as pets
+           (select concat_ws(' · ', sv.name,
+                     case when h.bedrooms = 0 then 'Studio' else h.bedrooms || ' bd' end || ' / ' || h.full_baths || ' ba')
+            from appointment_homes ah join homes h on h.id = ah.home_id
+            where ah.appointment_id = a.id order by ah.created_at limit 1) as service,
+           coalesce((select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+                     where ah.appointment_id = a.id), 0)::int as total_cents
     from appointments a
+    left join services sv on sv.id = a.service_id
     join businesses b on b.id = a.business_id
     join clients c on c.id = a.client_id
     where a.id = ${appointmentId}`;
@@ -114,7 +107,8 @@ function varsFor(c: ApptContext, extra: Record<string, string | number> = {}) {
     business: c.business_name,
     business_phone: phoneLabel(c.business_phone),
     client: c.first_name,
-    pet: c.pets ?? "your pet",
+    service: c.service ?? "cleaning",
+    total: money(c.total_cents),
     date: formatInTimeZone(c.start_at, c.timezone, "EEE, MMM d"),
     time: formatInTimeZone(c.start_at, c.timezone, "h:mm a"),
     link: c.public_token ? appointmentLink(c.public_token) : bookingUrl(c),
@@ -194,8 +188,8 @@ export async function queueDueMessages(businessId: string) {
     }
   }
 
-  // 2. Rebook reminders: the pet's grooming frequency has passed since the last visit
-  //    and nothing is booked yet. Sent on the due date (or up to 3 days late if missed).
+  // 2. Rebook reminders: the booked frequency has passed since the last cleaning and nothing
+  //    is booked yet (a one-time cleaning: after 4 weeks). Sent on the due date (or up to 3 days late).
   const rebook = on ? await template(businessId, "rebook") : null;
   if (rebook && nowLocal >= (rebook.send_at_time ?? "00:00")) {
     const rows = await sql<{ id: string; start_at: Date; days: number | null }[]>`
@@ -205,8 +199,8 @@ export async function queueDueMessages(businessId: string) {
         where a.business_id = ${businessId} and a.status = 'completed'
         order by a.client_id, a.start_at desc)
       select last.id, last.start_at,
-        (select min(p.rebook_every_days) from appointment_pets ap join pets p on p.id = ap.pet_id
-          where ap.appointment_id = last.id) as days
+        (select case a.frequency when 'weekly' then 7 when 'biweekly' then 14 else 28 end
+         from appointments a where a.id = last.id) as days
       from last
       where not exists (select 1 from clients c where c.id = last.client_id and c.archived_at is not null)
         and not exists (select 1 from appointments f where f.client_id = last.client_id and f.start_at > now()
@@ -218,49 +212,15 @@ export async function queueDueMessages(businessId: string) {
       const c = await appointmentContext(r.id);
       if (c) await enqueue(c, "rebook", rebook, `rebook:${r.id}`, { days: r.days });
     }
-
-    // Clients imported from the old app, until they have a visit here.
-    const imported = await sql<{ id: string; last_at: Date; days: number | null }[]>`
-      select c.id, c.imported_last_service_at as last_at,
-        (select min(p.rebook_every_days) from pets p where p.client_id = c.id and p.deceased_at is null) as days
-      from clients c
-      where c.business_id = ${businessId} and c.imported_last_service_at is not null and c.archived_at is null
-        and not exists (select 1 from appointments a where a.client_id = c.id
-                          and (a.status = 'completed' or (a.start_at > now() and a.status in ('requested', 'unconfirmed', 'confirmed'))))`;
-    for (const r of imported) {
-      if (!r.days) continue;
-      // Only clients due in the last 3 days, so switching apps never texts long-overdue clients all at once.
-      const dueDate = addDaysYmd(ymd(r.last_at, tz), r.days);
-      if (dueDate > today || dueDate < addDaysYmd(today, -3)) continue;
-      const c = await clientContext(r.id, r.last_at);
-      if (c) await enqueue(c, "rebook", rebook, `rebook:client:${r.id}:${dueDate}`, { days: r.days });
-    }
   }
 
-  // 3. Vaccine reminders: N days before a pet's vaccine expires, once per expiry date.
-  const vaccine = on ? await template(businessId, "vaccine_due") : null;
-  if (vaccine && nowLocal >= (vaccine.send_at_time ?? "00:00")) {
-    const due = await sql<{ id: string; name: string; expires: string; pet: string; client_id: string }[]>`
-      select v.id, v.name, to_char(v.expires_on, 'YYYY-MM-DD') as expires, p.name as pet, c.id as client_id
-      from vaccines v join pets p on p.id = v.pet_id join clients c on c.id = p.client_id
-      where c.business_id = ${businessId} and v.alert_enabled and p.deceased_at is null and c.archived_at is null
-        and v.expires_on between ${today}::date and ${addDaysYmd(today, vaccine.offset_days ?? 30)}::date
-        -- skip it when a newer record of the same vaccine is already on file
-        and not exists (select 1 from vaccines n where n.pet_id = v.pet_id and lower(n.name) = lower(v.name) and n.expires_on > v.expires_on)`;
-    for (const v of due) {
-      const c = await clientContext(v.client_id, new Date());
-      const expires = formatInTimeZone(new Date(`${v.expires}T12:00:00Z`), "UTC", "MMM d, yyyy");
-      if (c) await enqueue(c, "vaccine_due", vaccine, `vaccine:${v.id}:${v.expires}`, { pet: v.pet, vaccine: v.name, expires });
-    }
-  }
-
-  // 4. Abandoned online bookings: one "finish booking" message a while after they stopped
+  // 3. Abandoned online bookings: one "finish booking" message a while after they stopped
   //    (between 8am and 8pm), and a heads-up to the owner. Part of the online booking flow,
   //    so it goes out even before automatic messages are switched on.
   const abandoned = await template(businessId, "abandoned_booking");
   if (abandoned && nowLocal >= "08:00" && nowLocal < "20:00") await remindAbandoned(businessId, abandoned);
 
-  // 5. Review request, a while after checkout (only when a review link is set).
+  // 4. Review request, a while after checkout (only when a review link is set).
   const review = await template(businessId, "review_request");
   if (review) {
     const minutes = review.offset_minutes ?? 30;
@@ -293,17 +253,15 @@ export async function emailDetails(appointmentId: string, trigger: Trigger): Pro
   if (!heading) return null;
   const [a] = await sql<{ start_at: Date; end_at: Date; status: string; address_line: string | null; public_token: string;
                          timezone: string; phone: string | null; cancellation_hours: number; total: number;
-                         pets: { name: string; services: { name: string; price_cents: number }[] }[] }[]>`
+                         lines: { name: string; qty: number; price_cents: number }[] }[]>`
     select a.start_at, a.end_at, a.status, a.address_line, a.public_token, b.timezone, b.phone, b.cancellation_hours,
-      coalesce((select sum(s.price_cents) from appointment_pets ap join appointment_services s on s.appointment_pet_id = ap.id
-                where ap.appointment_id = a.id), 0)::int as total,
-      coalesce((select json_agg(json_build_object('name', p.name, 'services',
-                  coalesce((select json_agg(json_build_object('name', s.name, 'price_cents', s.price_cents) order by s.created_at)
-                            from appointment_services s where s.appointment_pet_id = ap.id), '[]'::json)) order by p.name)
-                from appointment_pets ap join pets p on p.id = ap.pet_id where ap.appointment_id = a.id), '[]'::json) as pets
+      coalesce((select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+                where ah.appointment_id = a.id), 0)::int as total,
+      coalesce((select json_agg(json_build_object('name', l.name, 'qty', l.qty, 'price_cents', l.price_cents) order by l.created_at, l.id)
+                from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+                where ah.appointment_id = a.id), '[]'::json) as lines
     from appointments a join businesses b on b.id = a.business_id where a.id = ${appointmentId}`;
   if (!a) return null;
-  const price = (c: number) => (c === 0 ? "Included" : money(c).replace(/\.00$/, ""));
   const live = !["cancelled", "declined", "no_show"].includes(a.status);
   const calendar = ["booked", "confirmed", "reminder"].includes(trigger) ? await clientEvent({ id: appointmentId }) : null;
   return {
@@ -316,12 +274,12 @@ export async function emailDetails(appointmentId: string, trigger: Trigger): Pro
           : null,
     when: `${formatInTimeZone(a.start_at, a.timezone, "EEEE, MMMM d")} · ${formatInTimeZone(a.start_at, a.timezone, "h:mm a")}`,
     address: a.address_line,
-    pets: a.pets.map((p) => ({ name: p.name, services: p.services.map((s) => ({ name: s.name, price: price(s.price_cents) })) })),
-    total: a.total ? price(a.total) : "",
+    lines: a.lines.map((l) => ({ name: l.qty > 1 ? `${l.name} × ${l.qty}` : l.name, price: money(l.price_cents) })),
+    total: a.total ? money(a.total) : "",
     link: live ? appointmentLink(a.public_token) : null,
     businessPhone: phoneLabel(a.phone) || null,
     policy: live
-      ? `Free cancellation up to ${a.cancellation_hours} hours before the visit. After that, 50% of the service price applies. The final price can change for matting or behavior.`
+      ? `Free cancellation up to ${a.cancellation_hours} hours before the visit. After that, a late cancellation fee may apply.`
       : null,
     calendar: calendar && { apple: calendar.apple, google: calendar.google, ics: calendar.ics },
   };
@@ -426,7 +384,7 @@ export async function monthlyMarketingReminder(businessId: string) {
 /** Sends the "finish booking" message for drafts that went quiet. Each draft gets one. */
 export async function remindAbandoned(businessId: string, t: Template) {
   const minutes = t.offset_minutes ?? 120;
-  const drafts = await sql<{ id: string; phone: string; first_name: string | null; email: string | null; pets: string | null;
+  const drafts = await sql<{ id: string; phone: string; first_name: string | null; email: string | null; summary: string | null;
                             step: string; client_id: string | null; sms_ok: boolean; business: string; business_phone: string | null }[]>`
     update booking_drafts d set reminded_at = now()
     from businesses b
@@ -438,12 +396,12 @@ export async function remindAbandoned(businessId: string, t: Template) {
         and not exists (select 1 from appointments a join clients c on c.id = a.client_id
                         where c.business_id = x.business_id and c.phone = x.phone and a.created_at > x.created_at)
       for update skip locked)
-    returning d.id, d.phone, d.first_name, d.email, d.pets, d.step, d.client_id, b.name as business, b.phone as business_phone,
+    returning d.id, d.phone, d.first_name, d.email, d.summary, d.step, d.client_id, b.name as business, b.phone as business_phone,
       exists (select 1 from clients c where c.id = d.client_id and c.sms_consent_at is not null and c.sms_opted_out_at is null) as sms_ok`;
   for (const d of drafts) {
     const vars = {
       client: d.first_name ?? "there",
-      pet: d.pets ?? "your pup",
+      service: d.summary ?? "your cleaning",
       business: d.business,
       business_phone: phoneLabel(d.business_phone),
       booking_url: `${appUrl()}/book?phone=${d.phone.replace(/^\+1/, "")}`,
@@ -466,15 +424,15 @@ export async function remindAbandoned(businessId: string, t: Template) {
     const who = `${d.first_name ?? "Someone"} ${phoneLabel(d.phone)}`;
     const sent = d.sms_ok || d.email ? "We sent them a link to finish." : "They left no email, so give them a call.";
     await notifyOwner(businessId, `Didn't finish booking: ${d.first_name ?? phoneLabel(d.phone)}`,
-      `${who} started booking${d.pets ? ` ${d.pets}` : ""} online and stopped (${STEP_LABEL[d.step] ?? d.step}). ${sent}`,
+      `${who} started booking${d.summary ? ` (${d.summary})` : ""} online and stopped (${STEP_LABEL[d.step] ?? d.step}). ${sent}`,
       "/requests");
   }
 }
 
 export const STEP_LABEL: Record<string, string> = {
-  phone: "after the phone number",
   contact: "after name and email",
-  address: "after the address",
-  times: "while picking a time",
+  date: "while picking a time",
+  address: "after the time, at the address",
+  access: "at the access step",
   review: "on the last step",
 };

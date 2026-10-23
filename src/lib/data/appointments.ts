@@ -4,6 +4,7 @@ import { sql } from "../db";
 import { dayRangeUtc, addDaysYmd, hm, isUuid, ymd } from "../format";
 import { zipMiles } from "../geo/zip";
 import type { Frequency } from "../pricing";
+import { homeSizeLabel } from "../home-options";
 
 export type ApptHome = {
   id: string;
@@ -176,3 +177,7 @@ export async function nearbyDays(staff: StaffContext, zip: string | null, limit 
   }
   return [...best.values()].sort((a, b) => a.miles - b.miles || a.date.localeCompare(b.date)).slice(0, limit);
 }
+
+/** "Regular Clean · 3 bd / 2 ba", for lists and the calendar. */
+export const visitLabel = (a: { service_name: string | null; home: ApptHome | null }) =>
+  [a.service_name, a.home ? homeSizeLabel(a.home) : null].filter(Boolean).join(" · ");

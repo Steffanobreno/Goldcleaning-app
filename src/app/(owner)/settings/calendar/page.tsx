@@ -29,7 +29,7 @@ export default async function CalendarSettingsPage() {
           )}
           <p className="text-sm text-muted">
             A small free script in the Woofers Google account copies every visit (and every online request) into a
-            &quot;{b.name}&quot; calendar: pets, services, phone and address. New, moved and cancelled visits show up within
+            &quot;{b.name}&quot; calendar: service, home size, price, phone and address. New, moved and cancelled visits show up within
             15 minutes, from 6am to 9pm. Set it up once, on a computer.
           </p>
           <ol className="list-decimal space-y-1.5 pl-5 text-sm">

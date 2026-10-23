@@ -70,9 +70,6 @@ export function AudienceForm({ initial, cities, count, save }: {
             <option value="has">Already booked</option>
           </Select>
         </Field>
-        <Field label="Breed contains" hint="e.g. doodle, poodle, shih tzu">
-          <Input value={f.breed} onChange={(e) => setF({ ...f, breed: e.target.value })} placeholder="Any breed" />
-        </Field>
       </Card>
 
       {cities.length > 0 && (
