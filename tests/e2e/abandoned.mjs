@@ -73,7 +73,13 @@ while (tue.getDay() !== 3);
 await page.goto(page.url() + `&date=${tue.toISOString().slice(0, 10)}&time=13:00`);
 await page.selectOption('select[name="service"]', { label: "Deep Clean" });
 await page.getByRole("button", { name: "Book cleaning" }).click();
-await page.waitForURL(/\/appointments\/[0-9a-f-]+\?booked=1/);
+// Earlier tests may have booked that afternoon: the form warns, and the owner books anyway.
+await Promise.race([page.waitForURL(/\/appointments\/[0-9a-f-]+\?booked=1/), page.getByLabel("Book anyway").waitFor()]);
+if (await page.getByLabel("Book anyway").count()) {
+  await page.getByLabel("Book anyway").check();
+  await page.getByRole("button", { name: "Book cleaning" }).click();
+  await page.waitForURL(/\/appointments\/[0-9a-f-]+\?booked=1/);
+}
 await page.goto(`${BASE}/abandoned?status=recovered`);
 await page.getByRole("link", { name: /Lily Left/ }).getByText("Recovered").waitFor();
 step("after booking her, Lily shows as Recovered");
