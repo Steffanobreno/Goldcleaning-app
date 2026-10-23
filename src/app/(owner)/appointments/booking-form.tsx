@@ -4,12 +4,20 @@ import { useActionState, useState } from "react";
 import { Button, Field, Input, Notice, Select, Textarea } from "@/components/ui";
 import { minutesLabel, money } from "@/lib/format";
 import { homeSizeLabel } from "@/lib/home-options";
-import { FREQUENCIES, FREQUENCY_LABEL, quote, totalCents, type Catalog, type Frequency } from "@/lib/pricing";
+import { agreedQuote, FREQUENCIES, FREQUENCY_LABEL, quote, totalCents, type Catalog, type Frequency } from "@/lib/pricing";
 import type { FormState } from "./actions";
 
 type Home = { id: string; label: string; bedrooms: number; full_baths: number; half_baths: number; address: string };
 /** Editing the price of a booked visit: its home is fixed and there is no date to pick. */
-export type EditValues = { serviceId: string; frequency: Frequency; qty: Record<string, number>; adjustCents: number; durationMin: number; baseMin: number };
+export type EditValues = {
+  serviceId: string;
+  frequency: Frequency;
+  qty: Record<string, number>;
+  adjustCents: number;
+  durationMin: number;
+  baseMin: number;
+  agreedCents: number | null; // a quote-only service: the price agreed by hand
+};
 
 export function BookingForm({
   action,
@@ -31,11 +39,14 @@ export function BookingForm({
   edit?: EditValues;
 }) {
   const [state, formAction, pending] = useActionState(action, undefined);
-  const services = catalog.services.filter((s) => s.pricing === "rate");
+  // Quote-only services (Airbnb, office) are booked at the price agreed with the client.
+  const services = catalog.services;
   const [homeId, setHomeId] = useState(defaultHome && homes.some((h) => h.id === defaultHome) ? defaultHome : homes[0]?.id ?? "");
   const [serviceId, setServiceId] = useState(edit?.serviceId ?? services[0]?.id ?? "");
   const service = services.find((s) => s.id === serviceId);
-  const offered = FREQUENCIES.filter((f) => service?.rates[f]);
+  const agreed = service?.pricing === "quote";
+  const offered = agreed ? FREQUENCIES : FREQUENCIES.filter((f) => service?.rates[f]);
+  const [agreedPrice, setAgreedPrice] = useState(edit?.agreedCents ? (edit.agreedCents / 100).toFixed(2) : "");
   const [frequency, setFrequency] = useState<Frequency>(edit?.frequency ?? "one_time");
   const freq = offered.includes(frequency) ? frequency : (offered[0] ?? "one_time");
   const [qty, setQty] = useState<Record<string, number>>(edit?.qty ?? {});
@@ -44,14 +55,17 @@ export function BookingForm({
   const [adjust, setAdjust] = useState(edit?.adjustCents ? (edit.adjustCents / 100).toFixed(2) : "");
 
   const home = homes.find((h) => h.id === homeId);
-  const q = home
-    ? quote(catalog, {
-        serviceId,
-        frequency: freq,
-        home: { bedrooms: home.bedrooms, fullBaths: home.full_baths, halfBaths: home.half_baths },
-        extras: Object.entries(qty).filter(([, n]) => n > 0).map(([id, n]) => ({ serviceId: id, qty: n })),
-      })
-    : null;
+  const size = home ? { bedrooms: home.bedrooms, fullBaths: home.full_baths, halfBaths: home.half_baths } : null;
+  const q = !size
+    ? null
+    : agreed
+      ? agreedQuote(catalog, { serviceId, frequency: freq, home: size }, Math.round((Number(agreedPrice.replace(/[$,\s]/g, "")) || 0) * 100))
+      : quote(catalog, {
+          serviceId,
+          frequency: freq,
+          home: size,
+          extras: Object.entries(qty).filter(([, n]) => n > 0).map(([id, n]) => ({ serviceId: id, qty: n })),
+        });
   const priced = q && !("error" in q) ? q : null;
   const adjustCents = Math.round((Number(adjust.replace(/[$,\s]/g, "")) || 0) * 100);
   const total = (priced ? totalCents(priced.lines) : 0) + adjustCents;
@@ -86,7 +100,7 @@ export function BookingForm({
           <Select name="service" value={serviceId} onChange={(e) => setServiceId(e.target.value)} required>
             {services.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name}
+                {s.name}{s.pricing === "quote" ? " (agreed price)" : ""}
               </option>
             ))}
           </Select>
@@ -105,9 +119,14 @@ export function BookingForm({
           </fieldset>
         )}
         {offered.length <= 1 && <input type="hidden" name="frequency" value={freq} />}
+        {agreed && (
+          <Field label="Agreed price ($)" hint="The price you quoted the client for each visit.">
+            <Input name="agreed_price" inputMode="decimal" value={agreedPrice} onChange={(e) => setAgreedPrice(e.target.value)} placeholder="180.00" required />
+          </Field>
+        )}
       </div>
 
-      {catalog.extras.length > 0 && (
+      {!agreed && catalog.extras.length > 0 && (
         <details className="card px-4 py-3" open={Object.values(qty).some((n) => n > 0)}>
           <summary className="cursor-pointer font-semibold text-brand">
             Extras{Object.values(qty).filter((n) => n > 0).length ? ` (${Object.values(qty).filter((n) => n > 0).length})` : ""}

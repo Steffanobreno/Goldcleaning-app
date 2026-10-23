@@ -110,3 +110,19 @@ export function quote(cat: Catalog, input: QuoteInput): Quote | { error: string 
   const lines = priceLines(service, input.frequency, rate, input.home, picks);
   return { service, lines, totalCents: totalCents(lines), durationMin: durationMinutes(input.home, cat.rule) };
 }
+
+/**
+ * A visit at a price agreed by hand (Airbnb, office, or any service the owner prices herself):
+ * one service line at that price. The length still comes from the home size.
+ */
+export function agreedQuote(cat: Catalog, input: Omit<QuoteInput, "extras">, cents: number): Quote | { error: string } {
+  const service = cat.services.find((s) => s.id === input.serviceId);
+  if (!service) return { error: "Please choose a service." };
+  if (!Number.isInteger(cents) || cents <= 0 || cents > 10_000_00) return { error: "Enter the agreed price." };
+  const { bedrooms, fullBaths, halfBaths } = input.home;
+  if (!inRange(bedrooms, 0, 7) || !inRange(fullBaths, 1, 7) || !inRange(halfBaths, 0, 7)) {
+    return { error: "Please check the number of bedrooms and bathrooms." };
+  }
+  const lines = [line("service", service.id, `${service.name} · ${FREQUENCY_LABEL[input.frequency]}`, 1, cents)];
+  return { service, lines, totalCents: cents, durationMin: durationMinutes(input.home, cat.rule) };
+}

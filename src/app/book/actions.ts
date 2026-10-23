@@ -7,7 +7,7 @@ import type { DraftDetails } from "@/lib/data/abandoned";
 import { ACCESS_METHODS, type AccessMethod } from "@/lib/home-options";
 import { dayLabel, money, normalizePhone, phoneLabel, timeLabel, ymd } from "@/lib/format";
 import { durationMinutes, FREQUENCIES, FREQUENCY_LABEL, quote, type Catalog, type Frequency, type HomeSize } from "@/lib/pricing";
-import { notifyAppointment, notifyOwner } from "@/lib/messaging";
+import { notifyAppointment, notifyOwner, notifyQuote } from "@/lib/messaging";
 
 // The public booking page. Nothing here tells a visitor whether a phone number is already a
 // client: a known number is matched only when the request is saved, and every request still
@@ -253,3 +253,78 @@ export async function requestBookingAction(input: BookingRequest): Promise<Booki
 }
 
 class Blocked extends Error {}
+
+export type QuoteRequest = {
+  serviceId: string; // Airbnb Turnover or Office Cleaning
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  city: string;
+  zip: string;
+  bedrooms: number | null;
+  fullBaths: number | null;
+  squareFeet: number | null;
+  frequency: string;
+  message: string;
+  photos: string[]; // data URLs, shrunk in the browser, at most 5
+  website: string; // honeypot
+};
+
+const PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const MAX_PHOTOS = 5;
+
+/** Saves a quote request (Airbnb or office), emails the client and tells the owner. */
+export async function requestQuoteAction(input: QuoteRequest): Promise<{ ok: true } | { error: string }> {
+  const b = await getPublicBusiness();
+  if (!b) return { error: CLOSED };
+  if (input.website) return { ok: true };
+  const [svc] = await sql<{ name: string }[]>`
+    select name from services where id = ${String(input.serviceId ?? "")}::uuid and business_id = ${b.id} and pricing = 'quote'`.catch(() => []);
+  if (!svc) return { error: "Please choose Airbnb Turnover or Office Cleaning." };
+  const kind = /office/i.test(svc.name) ? "office" : "airbnb";
+  const phone = normalizePhone(input.phone);
+  const cut = (v: unknown, n: number) => String(v ?? "").trim().slice(0, n);
+  const firstName = cut(input.firstName, 60);
+  const email = cut(input.email, 120).toLowerCase();
+  const zip = cut(input.zip, 5);
+  const message = cut(input.message, 3000);
+  if (!firstName) return { error: "Please enter your first name." };
+  if (!/^\S+@\S+\.\S+$/.test(email)) return { error: "Please check your email address." };
+  if (!phone) return { error: "Please enter a 10-digit phone number." };
+  if (!/^\d{5}$/.test(zip)) return { error: "Please enter the ZIP code of the place." };
+  const problem = zipProblem(b, zip);
+  if (problem) return { error: problem };
+  if (!message) return { error: "Please tell us a little about what you need." };
+  const count = (v: unknown, max: number) => {
+    const n = Number(v);
+    return v === null || v === "" || !Number.isInteger(n) || n < 0 || n > max ? null : n;
+  };
+  const photos = (Array.isArray(input.photos) ? input.photos : []).slice(0, MAX_PHOTOS).flatMap((url) => {
+    const m = /^data:(image\/[a-z]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(url));
+    if (!m || !PHOTO_TYPES.includes(m[1])) return [];
+    const data = Buffer.from(m[2], "base64");
+    return data.length > 0 && data.length <= 1_500_000 ? [{ content_type: m[1], data }] : [];
+  });
+
+  const [{ recent }] = await sql`
+    select count(*)::int as recent from quote_requests
+    where business_id = ${b.id} and phone = ${phone} and created_at > now() - interval '1 day'`;
+  if (recent >= 3) return { error: "You already sent a few requests today. We'll be in touch soon!" };
+
+  const id = await sql.begin(async (tx) => {
+    const [q] = await tx`
+      insert into quote_requests (business_id, kind, first_name, last_name, email, phone, city, zip, bedrooms, full_baths,
+                                  square_feet, frequency, message)
+      values (${b.id}, ${kind}, ${firstName}, ${cut(input.lastName, 60)}, ${email}, ${phone}, ${cut(input.city, 60) || null}, ${zip},
+              ${count(input.bedrooms, 20)}, ${count(input.fullBaths, 20)}, ${count(input.squareFeet, 1_000_000)},
+              ${cut(input.frequency, 40) || null}, ${message})
+      returning id`;
+    for (const p of photos) {
+      await tx`insert into quote_request_photos (quote_request_id, content_type, data) values (${q.id}, ${p.content_type}, ${p.data})`;
+    }
+    return q.id as string;
+  });
+  await notifyQuote(id);
+  return { ok: true };
+}

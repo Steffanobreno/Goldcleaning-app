@@ -7,6 +7,7 @@ import type { DaySlots } from "@/lib/booking";
 import { MonthCalendar } from "./month-calendar";
 import { ExtrasGrid } from "./extras-grid";
 import { PriceSummary } from "./price-summary";
+import { QuoteForm } from "./quote-form";
 import { requestBookingAction, saveDraftAction, slotsAction, type Contact } from "./actions";
 
 // The Clover-style booking page: one scrolling page, in order: service, frequency, home,
@@ -142,10 +143,7 @@ export function BookingPage({ initialCatalog, today, businessPhone }: { initialC
       </Section>
 
       {isQuote ? (
-        <div className="card space-y-2 p-5">
-          <h2 className="font-serif text-xl font-bold">Let&apos;s talk about your {service!.name.toLowerCase()}</h2>
-          <p>Every place is different, so we quote these by hand. Call or text us at {businessPhone} and we&apos;ll set up a visit.</p>
-        </div>
+        <QuoteForm key={service!.id} serviceId={service!.id} office={/office/i.test(service!.name)} businessPhone={businessPhone} />
       ) : (
         <>
           {offered.length > 1 && (

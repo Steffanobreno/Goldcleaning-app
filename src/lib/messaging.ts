@@ -27,7 +27,9 @@ export type Trigger =
   | "on_my_way"
   | "rebook"
   | "review_request"
-  | "abandoned_booking";
+  | "abandoned_booking"
+  | "quote_received"
+  | "quote_new";
 
 export type Template = {
   body: string;
@@ -153,6 +155,38 @@ export async function notifyAppointment(appointmentId: string, trigger: Trigger)
   // Keyed on the start time, so a rescheduled visit gets a fresh "booked" message.
   await enqueue(c, trigger, t, `${trigger}:${c.id}:${c.start_at.getTime()}`);
   await sendQueuedEmails(c.business_id);
+}
+
+/**
+ * A quote request came in: the "we'll get back to you" email to the client (part of the online
+ * flow, so it goes out even before automatic messages are on) and a heads-up to the owner.
+ */
+export async function notifyQuote(quoteId: string) {
+  const [q] = await sql<{ business_id: string; first_name: string; last_name: string; email: string; phone: string;
+                         kind: string; city: string | null; message: string; business: string; business_phone: string | null }[]>`
+    select q.business_id, q.first_name, q.last_name, q.email, q.phone, q.kind, q.city, q.message,
+           b.name as business, b.phone as business_phone
+    from quote_requests q join businesses b on b.id = q.business_id where q.id = ${quoteId}`;
+  if (!q) return;
+  const vars = { client: q.first_name, business: q.business, business_phone: phoneLabel(q.business_phone) };
+  const t = await template(q.business_id, "quote_received");
+  if (t) {
+    await sql`
+      insert into messages (business_id, direction, channel, to_email, subject, body, template_trigger, status, dedupe_key)
+      values (${q.business_id}, 'out', 'email', ${q.email}, ${render(t.email_subject ?? q.business, vars)}, ${render(t.body, vars)},
+              'quote_received', 'queued', ${`quote:${quoteId}:email`})
+      on conflict (dedupe_key) do nothing`;
+    await sendQueuedEmails(q.business_id);
+  }
+  const kind = q.kind === "office" ? "Office" : "Airbnb";
+  const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  await notifyOwner(
+    q.business_id,
+    `New quote request (${kind}): ${q.first_name} ${q.last_name}`,
+    `${q.first_name} ${q.last_name}, ${phoneLabel(q.phone)}, ${q.email}${q.city ? `, ${q.city}` : ""}.\n\n${q.message}\n\n` +
+      `See it and the photos: ${appUrl}/requests?tab=quotes`,
+    "/requests?tab=quotes",
+  );
 }
 
 /** The text the owner sends by hand from the phone (e.g. "on my way"), filled in. */

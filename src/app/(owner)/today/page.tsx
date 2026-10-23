@@ -22,11 +22,12 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const tz = staff.timezone;
   const today = todayYmd(tz);
   const date = isYmd(sp.date) ? sp.date : today;
-  const [day, [{ requests }], groomers] = await Promise.all([
+  const [day, [{ requests, quotes }], groomers] = await Promise.all([
     listDay(staff, date),
-    sql<{ requests: number }[]>`
-      select count(*)::int as requests from appointments
-      where business_id = ${staff.businessId} and status = 'requested' and start_at > now()`,
+    sql<{ requests: number; quotes: number }[]>`
+      select (select count(*)::int from appointments
+              where business_id = ${staff.businessId} and status = 'requested' and start_at > now()) as requests,
+             (select count(*)::int from quote_requests where business_id = ${staff.businessId} and status = 'new') as quotes`,
     listGroomers(staff, { activeOnly: true }),
   ]);
   // A route is one groomer's day: yours unless another one (or all) is picked.
@@ -58,6 +59,11 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
         {requests > 0 && (
           <ButtonLink href="/requests" kind="secondary" className="w-full border-warn bg-warn-soft text-warn">
             {requests} booking request{requests > 1 ? "s" : ""} waiting
+          </ButtonLink>
+        )}
+        {quotes > 0 && (
+          <ButtonLink href="/requests?tab=quotes" kind="secondary" className="w-full border-warn bg-warn-soft text-warn">
+            {quotes} quote request{quotes > 1 ? "s" : ""} waiting
           </ButtonLink>
         )}
         <GroomerFilter groomers={groomers} current={groomer}

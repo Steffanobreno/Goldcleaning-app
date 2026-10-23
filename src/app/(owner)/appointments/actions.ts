@@ -7,7 +7,7 @@ import { hm, isYmd, timeLabel, weekdayOf, ymd, zonedToUtc } from "@/lib/format";
 import { workingHoursFor } from "@/lib/data/appointments";
 import { insertAppointment } from "@/lib/data/appointment-write";
 import { loadCatalog } from "@/lib/data/catalog";
-import { FREQUENCIES, quote, type Frequency, type PriceLine } from "@/lib/pricing";
+import { agreedQuote, FREQUENCIES, quote, type Frequency, type HomeSize, type PriceLine } from "@/lib/pricing";
 import { recalcInvoice } from "@/lib/data/invoices";
 import { notifyAppointment } from "@/lib/messaging";
 import { NEXT_STATUS } from "@/lib/appointment-status";
@@ -23,6 +23,17 @@ function readExtras(form: FormData) {
     if (key.startsWith("x:")) extras.push({ serviceId: key.slice(2), qty: Number(value) || 0 });
   }
   return extras;
+}
+
+/** Prices the form: from the price list, or at the agreed price for a quote-only service. */
+async function priceForm(businessId: string, form: FormData, home: HomeSize, frequency: Frequency) {
+  const catalog = await loadCatalog(businessId);
+  const serviceId = String(form.get("service") ?? "");
+  if (catalog.services.find((s) => s.id === serviceId)?.pricing === "quote") {
+    const cents = Math.round(Number(String(form.get("agreed_price") ?? "").replace(/[$,\s]/g, "")) * 100);
+    return agreedQuote(catalog, { serviceId, frequency, home }, cents);
+  }
+  return quote(catalog, { serviceId, frequency, home, extras: readExtras(form) });
 }
 
 async function outsideHours(staff: StaffContext, date: string, start: string, end: Date) {
@@ -67,12 +78,7 @@ export async function createAppointmentAction(clientId: string, _: FormState, fo
   const frequency = String(form.get("frequency") ?? "one_time") as Frequency;
   if (!FREQUENCIES.includes(frequency)) return { error: "Choose how often." };
 
-  const q = quote(await loadCatalog(staff.businessId), {
-    serviceId: String(form.get("service") ?? ""),
-    frequency,
-    home: { bedrooms: home.bedrooms, fullBaths: home.full_baths, halfBaths: home.half_baths },
-    extras: readExtras(form),
-  });
+  const q = await priceForm(staff.businessId, form, { bedrooms: home.bedrooms, fullBaths: home.full_baths, halfBaths: home.half_baths }, frequency);
   if ("error" in q) return { error: q.error };
   const lines: (PriceLine | (Omit<PriceLine, "kind"> & { kind: "adjustment" }))[] = [...q.lines];
   const adjust = String(form.get("adjustment") ?? "").replace(/[$,\s]/g, "");
@@ -352,12 +358,7 @@ export async function saveLinesAction(appointmentId: string, _: FormState, form:
   if (inv) return { error: "Checkout already started. Change prices on the bill instead." };
   const frequency = String(form.get("frequency") ?? "one_time") as Frequency;
   if (!FREQUENCIES.includes(frequency)) return { error: "Choose how often." };
-  const q = quote(await loadCatalog(staff.businessId), {
-    serviceId: String(form.get("service") ?? ""),
-    frequency,
-    home: { bedrooms: appt.bedrooms, fullBaths: appt.full_baths, halfBaths: appt.half_baths },
-    extras: readExtras(form),
-  });
+  const q = await priceForm(staff.businessId, form, { bedrooms: appt.bedrooms, fullBaths: appt.full_baths, halfBaths: appt.half_baths }, frequency);
   if ("error" in q) return { error: q.error };
   const adjust = String(form.get("adjustment") ?? "").replace(/[$,\s]/g, "");
   const adjustCents = adjust === "" ? 0 : Math.round(Number(adjust) * 100);

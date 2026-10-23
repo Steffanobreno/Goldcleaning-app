@@ -48,6 +48,9 @@ export default async function EditPricePage({ params }: PageProps<"/appointments
                 qty,
                 adjustCents,
                 durationMin,
+                agreedCents: catalog.services.find((s) => s.id === appt.service_id)?.pricing === "quote"
+                  ? (appt.lines.find((l) => l.kind === "service")?.price_cents ?? null)
+                  : null,
                 baseMin: durationMinutes({ bedrooms: home.bedrooms, fullBaths: home.full_baths, halfBaths: home.half_baths }, catalog.rule),
               }}
             />

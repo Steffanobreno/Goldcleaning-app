@@ -6,11 +6,17 @@ import { dayLabel, money, phoneLabel, timeLabel } from "@/lib/format";
 import { Button, Card, Empty, Page, PageHeader } from "@/components/ui";
 import { setStatusAction } from "../appointments/actions";
 import { listDrafts } from "@/lib/data/abandoned";
+import { countNewQuotes, listQuotes } from "@/lib/data/quotes";
+import { QuoteList } from "./quotes";
 
 export const metadata: Metadata = { title: "Requests" };
 
-export default async function RequestsPage() {
+export default async function RequestsPage({ searchParams }: PageProps<"/requests">) {
   const staff = await requireStaff();
+  const sp = await searchParams;
+  const tab = sp.tab === "quotes" ? "quotes" : "bookings";
+  const closed = sp.closed === "1";
+  const [quotes, newQuotes] = await Promise.all([tab === "quotes" ? listQuotes(staff, !closed) : [], countNewQuotes(staff)]);
   const rows = await sql<
     { id: string; start_at: Date; client: string; phone: string; address_line: string | null; notes: string | null;
       summary: string | null; total_cents: number; created_at: Date; new_client: boolean }[]
@@ -40,8 +46,25 @@ export default async function RequestsPage() {
   const tz = staff.timezone;
   return (
     <>
-      <PageHeader title="Booking requests" back="/today" />
+      <PageHeader title="Requests" back="/today" />
       <Page>
+        <nav aria-label="Requests" className="grid grid-cols-2 gap-1 rounded-full bg-surface p-1 shadow-[var(--shadow-card)]">
+          {(["bookings", "quotes"] as const).map((t) => (
+            <Link key={t} href={t === "quotes" ? "/requests?tab=quotes" : "/requests"} aria-current={tab === t ? "page" : undefined}
+              className={`rounded-full py-2 text-center text-sm font-semibold ${tab === t ? "bg-navy text-white" : "text-muted"}`}>
+              {t === "quotes" ? `Quotes${newQuotes ? ` (${newQuotes})` : ""}` : `Bookings${rows.length ? ` (${rows.length})` : ""}`}
+            </Link>
+          ))}
+        </nav>
+        {tab === "quotes" ? (
+          <>
+            <QuoteList quotes={quotes} tz={tz} closed={closed} />
+            <Link href={closed ? "/requests?tab=quotes" : "/requests?tab=quotes&closed=1"} className="block text-center text-sm text-muted underline">
+              {closed ? "Back to open requests" : "See archived and converted"}
+            </Link>
+          </>
+        ) : (
+        <>
         {reschedules.length > 0 && (
           <section className="space-y-2">
             <h2 className="section-label">Asked for a different time</h2>
@@ -95,6 +118,8 @@ export default async function RequestsPage() {
             </span>
             <span className="font-semibold text-brand">See →</span>
           </Link>
+        )}
+        </>
         )}
       </Page>
     </>

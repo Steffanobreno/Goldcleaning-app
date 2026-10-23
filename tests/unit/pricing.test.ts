@@ -158,3 +158,20 @@ test("quote: home sizes outside the form's range are refused", () => {
   assert.ok("error" in quote(CATALOG, { ...base, home: home(1, 1, -1) }));
   assert.ok("error" in quote(CATALOG, { ...base, home: home(1.5, 1, 0) }));
 });
+
+import { agreedQuote } from "../../src/lib/pricing";
+
+test("agreedQuote: an Airbnb at an agreed $180 is one line, length from the home", () => {
+  const q = agreedQuote(CATALOG, { serviceId: "svc-airbnb", frequency: "weekly", home: home(4, 2, 0) }, 18000);
+  assert.ok(!("error" in q));
+  assert.deepEqual(q.lines.map((l) => [l.kind, l.label, l.amountCents]), [["service", "Airbnb Turnover · Weekly", 18000]]);
+  assert.equal(q.totalCents, 18000);
+  assert.equal(q.durationMin, 240);
+});
+
+test("agreedQuote: refuses a missing or zero price and unknown services", () => {
+  const base = { frequency: "one_time" as const, home: home(1, 1, 0) };
+  assert.ok("error" in agreedQuote(CATALOG, { ...base, serviceId: "svc-airbnb" }, 0));
+  assert.ok("error" in agreedQuote(CATALOG, { ...base, serviceId: "svc-airbnb" }, 12.5));
+  assert.ok("error" in agreedQuote(CATALOG, { ...base, serviceId: "nope" }, 18000));
+});
