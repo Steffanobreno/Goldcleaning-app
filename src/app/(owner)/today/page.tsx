@@ -11,6 +11,7 @@ import { DayNav } from "@/components/day-nav";
 import { Chat, Phone, Pin } from "@/components/icons";
 import { RouteMap } from "@/components/route-map";
 import { locateStops } from "@/lib/geocode";
+import { milesBetween, zipMiles } from "@/lib/geo/zip";
 import { GroomerFilter } from "@/components/groomer-filter";
 import { listGroomers } from "@/lib/data/staff";
 
@@ -48,6 +49,13 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const route = routeUrl(stops.map((s) => ({ address: s.address_line, lat: s.lat, lng: s.lng })));
   const expected = stops.reduce((sum, s) => sum + s.total_cents, 0);
   const done = stops.filter((s) => s.status === "completed").length;
+  // Straight-line miles from the previous home: from the map points, or between ZIP centers.
+  const milesFromPrev = stops.map((s, i) => {
+    if (i === 0) return null;
+    const p = stops[i - 1];
+    if (s.lat != null && s.lng != null && p.lat != null && p.lng != null) return milesBetween({ lat: p.lat, lng: p.lng }, { lat: s.lat, lng: s.lng });
+    return zipMiles(p.zip, s.zip);
+  });
 
   return (
     <>
@@ -105,6 +113,11 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
             <ol className="space-y-3">
               {stops.map((s, i) => (
                 <li key={s.id} className="card overflow-hidden">
+                  {milesFromPrev[i] != null && (
+                    <p className="border-b border-line bg-bg px-4 py-1.5 text-xs font-semibold text-muted">
+                      ↓ {milesFromPrev[i]!.toFixed(1)} mi from {stops[i - 1].client_name.split(" ")[0]}&apos;s
+                    </p>
+                  )}
                   <Link href={`/appointments/${s.id}`} className="flex gap-3 p-4">
                     <div className="w-16 shrink-0">
                       <span aria-hidden className="mb-1 flex h-6 w-6 items-center justify-center rounded-full bg-navy text-xs font-bold text-white">

@@ -16,6 +16,7 @@ const page = await browser.newPage({ viewport: { width: 390, height: 844 }, devi
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+page.on("response", (r) => r.status() === 404 && errors.push(`404 ${r.url()}`));
 const shot = (name) => page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true, caret: "initial" });
 const step = (msg) => console.log(`✓ ${msg}`);
 
@@ -127,6 +128,31 @@ await page.getByText("Paid in full").waitFor();
 await page.getByText("incl. $20.00 tip").waitFor();
 await shot("checkout-paid");
 step("paid $278.40 by Venmo with a $20 tip; invoice closed");
+
+// A second home the same afternoon, in San Carlos: Today shows the distance from Ana's, and
+// the Year view shows the day as full (two cleanings).
+await page.goto(`${BASE}/clients/new`);
+await page.fill('input[name="first_name"]', "Ben");
+await page.fill('input[name="last_name"]', "Costa");
+await page.fill('input[name="phone"]', "(650) 555-0143");
+await page.fill('input[name="address_line"]', "12 Laurel St");
+await page.fill('input[name="city"]', "San Carlos");
+await page.fill('input[name="zip"]', "94070");
+await page.click('button[type="submit"]');
+await page.waitForURL(/\/homes\/new/);
+await page.click('button[name="then"][value="book"]');
+await page.waitForURL(/\/appointments\/new\?client=/);
+await page.goto(page.url() + `&date=${date}&time=13:00`);
+await page.getByRole("button", { name: "Book cleaning" }).click();
+await page.waitForURL(/\/appointments\/[0-9a-f-]+\?booked=1/);
+await page.goto(`${BASE}/today?date=${date}`);
+await page.getByText(/↓ \d+\.\d mi from Ana's/).waitFor();
+await shot("today-two-homes");
+const dayName = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });
+await page.goto(`${BASE}/calendar?view=year&date=${date}`);
+await page.getByRole("link", { name: `${dayName}: full` }).waitFor();
+await shot("calendar-year");
+step("Today shows the miles between the two homes; the Year view shows the day full");
 
 for (const view of ["day", "week", "month", "agenda"]) {
   await page.goto(`${BASE}/calendar?view=${view}&date=${date}`);

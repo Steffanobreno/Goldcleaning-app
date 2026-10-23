@@ -8,19 +8,22 @@ import { addDaysYmd, dayLabel, dayRangeUtc, hm, isYmd, money, timeLabel, todayYm
 import { ButtonLink, Page, PageHeader, StatusBadge } from "@/components/ui";
 import { DayNav } from "@/components/day-nav";
 import { SlotButton } from "./slot-button";
+import { YearView } from "./year-view";
+import { dayFill } from "@/lib/calendar-fill";
 import { GroomerFilter } from "@/components/groomer-filter";
 import { listGroomers } from "@/lib/data/staff";
 
 export const metadata: Metadata = { title: "Calendar" };
 
-// Four ways to look at the schedule, like a phone calendar:
-// Day (hour by hour), Week (seven columns), Month (grid of days) and Agenda (list).
+// Five ways to look at the schedule, like a phone calendar: Day (hour by hour), Week (seven
+// columns), Month (grid of days), Year (how full each day is) and Agenda (list).
 
-type View = "day" | "week" | "month" | "agenda";
+type View = "day" | "week" | "month" | "year" | "agenda";
 const VIEWS: { key: View; label: string }[] = [
   { key: "day", label: "Day" },
   { key: "week", label: "Week" },
   { key: "month", label: "Month" },
+  { key: "year", label: "Year" },
   { key: "agenda", label: "Agenda" },
 ];
 const HIDDEN = ["cancelled", "no_show"];
@@ -68,17 +71,24 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
   const monthEnd = `${date.slice(0, 7)}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
   const gridDays = Math.ceil((Math.round((utcNoon(monthEnd).getTime() - utcNoon(gridStart).getTime()) / 86_400_000) + 1) / 7) * 7;
   const [from, count] =
-    view === "day" ? [date, 1] : view === "month" ? [gridStart, gridDays] : [monday(date), 7];
+    view === "day" ? [date, 1] : view === "month" ? [gridStart, gridDays] : view === "year" ? [date, 0] : [monday(date), 7];
 
   // ?groomer= shows one groomer's visits and blocks; without it, everyone's.
   const groomer = typeof sp.groomer === "string" && /^[0-9a-f-]{36}$/.test(sp.groomer) ? sp.groomer : null;
-  const [all, blocks, hours, groomers] = await Promise.all([
-    listRange(staff, from, count),
-    listTimeOff(staff, from, count, groomer),
+  const [all, blocks, hours, groomers, yearRows] = await Promise.all([
+    count ? listRange(staff, from, count) : [],
+    count ? listTimeOff(staff, from, count, groomer) : [],
     sql<{ weekday: number; start: string; end: string }[]>`
       select weekday, to_char(start_time, 'HH24:MI') as start, to_char(end_time, 'HH24:MI') as end
       from working_hours where staff_id = ${groomer ?? staff.staffId}`,
     listGroomers(staff, { activeOnly: true }),
+    // The Year view only needs each visit's day and status.
+    view === "year"
+      ? sql<{ start_at: Date; status: string; staff_id: string }[]>`
+          select start_at, status, staff_id from appointments
+          where business_id = ${staff.businessId}
+            and start_at >= ${dayRangeUtc(`${y}-01-01`, tz).start} and start_at < ${dayRangeUtc(`${y}-12-31`, tz).end}`
+      : [],
   ]);
   const appts = groomer ? all.filter((a) => a.staff_id === groomer) : all;
   const multi = groomers.length > 1;
@@ -87,8 +97,9 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
   const onDay = (d: string) => appts.filter((a) => ymd(a.start_at, tz) === d);
   const blocksOn = (d: string) => blocks.filter((t) => clip(t, d, tz));
 
-  const step = view === "day" ? 1 : view === "month" ? null : 7;
+  const step = view === "day" ? 1 : view === "month" || view === "year" ? null : 7;
   const shift = (n: number) => {
+    if (view === "year") return `${y + n}-01-01`;
     if (step) return addDaysYmd(date, n * step);
     const d = new Date(Date.UTC(y, m - 1 + n, 1));
     return d.toISOString().slice(0, 10);
@@ -96,6 +107,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
   const label =
     view === "day" ? dayLabel(zonedToUtc(date, "12:00", tz), tz)
       : view === "month" ? fmt(date, { month: "long", year: "numeric" })
+      : view === "year" ? String(y)
         : `${fmt(monday(date), { month: "short", day: "numeric" })} – ${fmt(addDaysYmd(monday(date), 6), { month: "short", day: "numeric" })}`;
   const base = `/calendar?view=${view}${q}&`;
 
@@ -103,7 +115,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
     <>
       <PageHeader title="Calendar" action={<ButtonLink href={`/appointments/new?date=${date}`}>Book</ButtonLink>} />
       <Page>
-        <nav aria-label="View" className="grid grid-cols-4 gap-1 rounded-2xl bg-surface p-1 shadow-[var(--shadow-card)]">
+        <nav aria-label="View" className="grid grid-cols-5 gap-1 rounded-2xl bg-surface p-1 shadow-[var(--shadow-card)]">
           {VIEWS.map((v) => (
             <Link key={v.key} href={`/calendar?view=${v.key}&date=${date}${q}`} aria-current={v.key === view ? "page" : undefined}
               className={`rounded-xl py-2 text-center text-sm font-semibold ${v.key === view ? "bg-navy text-white" : "text-muted"}`}>
@@ -112,7 +124,8 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
           ))}
         </nav>
         <DayNav base={base} prev={shift(-1)} next={shift(1)} today={today} label={label}
-          isToday={view === "day" ? date === today : view === "month" ? date.slice(0, 7) === today.slice(0, 7) : monday(date) === monday(today)} />
+          isToday={view === "day" ? date === today : view === "month" ? date.slice(0, 7) === today.slice(0, 7)
+            : view === "year" ? date.slice(0, 4) === today.slice(0, 4) : monday(date) === monday(today)} />
 
         <GroomerFilter groomers={groomers} current={groomer} href={(g) => `/calendar?view=${view}&date=${date}${g ? `&groomer=${g}` : ""}`} />
 
@@ -122,6 +135,10 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
         {view === "week" && <WeekGrid start={monday(date)} today={today} appts={appts} blocksOn={blocksOn} hoursOf={hoursOf} tz={tz} />}
         {view === "month" && (
           <MonthGrid start={gridStart} count={gridDays} month={date.slice(0, 7)} today={today} onDay={onDay} blocksOn={blocksOn} working={(d) => !!hoursOf(d)} />
+        )}
+        {view === "year" && (
+          <YearView year={y} today={today} working={(d) => !!hoursOf(d)}
+            fill={dayFill(groomer ? yearRows.filter((a) => a.staff_id === groomer) : yearRows, tz)} />
         )}
         {view === "agenda" && <Agenda start={monday(date)} today={today} onDay={onDay} blocksOn={blocksOn} working={(d) => !!hoursOf(d)} tz={tz} />}
       </Page>
