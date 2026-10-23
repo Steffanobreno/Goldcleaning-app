@@ -15,7 +15,7 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+page.on("console", (m) => m.type() === "error" && errors.push(`${m.text()} ${m.location()?.url ?? ""}`));
 page.on("response", (r) => r.status() === 404 && errors.push(`404 ${r.url()}`));
 const shot = (name) => page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true, caret: "initial" });
 const step = (msg) => console.log(`✓ ${msg}`);
@@ -177,6 +177,30 @@ await page.getByRole("heading", { name: "By service" }).waitFor();
 await page.locator("li", { hasText: "Regular Clean" }).getByText("×2").waitFor();
 await shot("reports");
 step("reports: $298.40 collected with the tip, 1 cleaning done, Regular Clean under By service");
+
+// Price list: a new Regular weekly start price changes new quotes on /book, not booked cleanings.
+await page.goto(`${BASE}/settings/services`);
+await page.getByLabel("Regular Clean Weekly Start").fill("160.00");
+await page.getByRole("button", { name: "Save Regular Clean prices" }).click();
+await page.getByText("Prices saved.").waitFor();
+await shot("price-list");
+const book = await browser.newPage({ viewport: { width: 390, height: 844 } });
+await book.goto(`${BASE}/book`);
+await book.getByRole("radio", { name: /^Weekly from \$160/ }).click();
+await book.getByLabel("Bedrooms").selectOption("3");
+await book.getByLabel("Full baths").selectOption("2");
+await book.getByLabel("Half baths").selectOption("1");
+await book.getByRole("button", { name: /^Inside Oven/ }).click();
+await book.getByTestId("book-total").getByText("$285.60").waitFor(); // 160 + 40 + 33.60 + 12 + 40
+await book.close();
+await page.goto(apptUrl);
+await page.getByTestId("appt-total").getByText("$278.40").waitFor();
+// Back to the real price for the suites that run next.
+await page.goto(`${BASE}/settings/services`);
+await page.getByLabel("Regular Clean Weekly Start").fill("152.80");
+await page.getByRole("button", { name: "Save Regular Clean prices" }).click();
+await page.getByText("Prices saved.").waitFor();
+step("Price list: weekly start $160 gives $285.60 on /book; Ana's booked cleaning keeps $278.40");
 
 await browser.close();
 if (errors.length) {

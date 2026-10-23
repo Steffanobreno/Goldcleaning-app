@@ -31,7 +31,7 @@ export function cleanFilters(raw: unknown): Filters {
   };
 }
 
-export type AudienceRow = { id: string; first_name: string; last_name: string; email: string; pet_name: string | null; last_visit: Date | null };
+export type AudienceRow = { id: string; first_name: string; last_name: string; email: string; last_visit: Date | null };
 
 /** Clients with an email who haven't unsubscribed, narrowed by the filters. */
 export function audience(businessId: string, f: Filters) {
@@ -39,7 +39,6 @@ export function audience(businessId: string, f: Filters) {
   return sql<AudienceRow[]>`
     select * from (
       select c.id, c.first_name, c.last_name, lower(trim(c.email)) as email, c.city,
-        null::text as pet_name,
         greatest((select max(a.start_at) from appointments a where a.client_id = c.id and a.status = 'completed'),
                  c.imported_last_service_at) as last_visit
       from clients c
@@ -112,19 +111,18 @@ export async function sendCampaignBatch(campaignId: string, max = 8) {
             where campaign_id = ${c.id} and status = 'skipped' and error = 'sending' and sent_at < now() - interval '10 minutes'`;
   const room = Math.min(max, await emailsLeftToday(c.business_id));
   if (room > 0) {
-    const batch = await sql<{ id: string; email: string; token: string; first_name: string; pet_name: string | null }[]>`
+    const batch = await sql<{ id: string; email: string; token: string; first_name: string }[]>`
       update campaign_recipients r set status = 'skipped', error = 'sending', sent_at = now()
       from clients cl
       where cl.id = r.client_id and cl.email_unsubscribed_at is null and r.id in (
         select id from campaign_recipients where campaign_id = ${c.id} and status = 'queued'
         order by email limit ${room} for update skip locked)
-      returning r.id, r.email, cl.marketing_token as token, cl.first_name,
-        null::text as pet_name`;
+      returning r.id, r.email, cl.marketing_token as token, cl.first_name`;
     const content: CampaignContent = { preheader: c.preheader, banner: c.banner, headline: c.headline, body: c.body, buttonLabel: c.button_label, buttonUrl: c.button_url };
     // The button goes straight to the booking page: one less click than the website.
     const booking = `${appUrl()}/book`;
     const mails = batch.map((r) => {
-      const vars = { first_name: r.first_name, pet_name: r.pet_name ?? "your home", business: c.name, booking_link: booking };
+      const vars = { first_name: r.first_name, business: c.name, booking_link: booking };
       const unsubscribeUrl = `${appUrl()}/u/${r.token}`;
       return {
         to: r.email,

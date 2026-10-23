@@ -14,7 +14,7 @@ function read(form: FormData) {
   const phoneRaw = String(form.get("phone") ?? "").trim();
   const phone = phoneRaw ? normalizePhone(phoneRaw) : null;
   const email = String(form.get("email") ?? "").trim().toLowerCase() || null;
-  if (!name) return { error: "Type the groomer's name." };
+  if (!name) return { error: "Type the team member's name." };
   if (!GROOMER_COLORS.includes(color)) return { error: "Pick a color." };
   if (phoneRaw && !phone) return { error: "Check the phone number (10 digits)." };
   if (email && !/^\S+@\S+\.\S+$/.test(email)) return { error: "Check the email address." };
@@ -42,7 +42,7 @@ export async function updateGroomerAction(id: string, _: TeamState, form: FormDa
   const g = read(form);
   if ("error" in g) return { error: g.error };
   const [row] = await sql`select role from staff where id = ${id} and business_id = ${staff.businessId}`;
-  if (!row) return { error: "Groomer not found." };
+  if (!row) return { error: "Team member not found." };
   const active = row.role === "owner" || form.get("active") === "on";
   await sql`update staff set name = ${g.name}, color = ${g.color}, phone = ${g.phone}, email = ${g.email}, active = ${active}
             where id = ${id} and business_id = ${staff.businessId}`;

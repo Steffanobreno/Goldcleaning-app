@@ -178,10 +178,10 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
           </div>
           {(groomers.length > 1 || appt.staff_id !== staff.staffId) && groomer && (
             <div className="card space-y-2 px-4 py-3">
-              {sp.groomerBusy && <Notice kind="error">That groomer already has a visit at this time.</Notice>}
+              {sp.groomerBusy && <Notice kind="error">That team already has a cleaning at this time.</Notice>}
               <div className="flex items-center gap-3">
                 <span aria-hidden className="h-3 w-3 shrink-0 rounded-full" style={{ background: groomer.color }} />
-                <span className="flex-1"><span className="text-sm text-muted">Groomer</span> <span className="font-semibold">{groomer.name}</span></span>
+                <span className="flex-1"><span className="text-sm text-muted">Team</span> <span className="font-semibold">{groomer.name}</span></span>
               </div>
               {otherGroomers.length > 0 && !["completed", "cancelled", "no_show", "declined"].includes(appt.status) && (
                 <form action={assignGroomerAction.bind(null, id)} className="flex gap-2">

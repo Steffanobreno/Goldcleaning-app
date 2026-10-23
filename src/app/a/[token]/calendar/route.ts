@@ -8,7 +8,7 @@ export async function GET(_: Request, { params }: RouteContext<"/a/[token]/calen
   return new Response(e.ics, {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
-      "Content-Disposition": 'inline; filename="woofers-visit.ics"',
+      "Content-Disposition": 'inline; filename="gold-cleaning.ics"',
       "Cache-Control": "no-store",
     },
   });

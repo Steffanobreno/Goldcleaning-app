@@ -1,12 +1,12 @@
 // The Google Apps Script the owner pastes at script.google.com (free, in their own Google
-// account). Every Sunday night it saves two files in a "Woofers backups" folder on Google
+// account). Every Sunday night it saves two files in a "Gold Cleaning backups" folder on Google
 // Drive: everything as JSON, and the client list as a spreadsheet. It keeps the last 12 weeks.
 // If a backup fails, Google emails the account owner on its own.
 
 export function backupScript(feedUrl: string, timezone: string) {
-  return `// Woofers → Google Drive backup. Paste this in a NEW project, Save, choose "setup" and press Run once.
+  return `// Gold Cleaning → Google Drive backup. Paste this in a NEW project, Save, choose "setup" and press Run once.
 const FEED = ${JSON.stringify(feedUrl)};
-const FOLDER = "Woofers backups";
+const FOLDER = "Gold Cleaning backups";
 const TIMEZONE = ${JSON.stringify(timezone)};
 const KEEP_WEEKS = 12;
 
@@ -20,7 +20,7 @@ function backup() {
   const found = DriveApp.getFoldersByName(FOLDER);
   const folder = found.hasNext() ? found.next() : DriveApp.createFolder(FOLDER);
   const stamp = Utilities.formatDate(new Date(), TIMEZONE, "yyyy-MM-dd");
-  [["data", "woofers-backup-" + stamp + ".json"], ["clients", "woofers-clients-" + stamp + ".csv"]].forEach(([file, name]) => {
+  [["data", "gold-cleaning-backup-" + stamp + ".json"], ["clients", "gold-cleaning-clients-" + stamp + ".csv"]].forEach(([file, name]) => {
     let res;
     for (let i = 0; i < 3; i++) { // the database may be asleep: try again
       res = UrlFetchApp.fetch(FEED + "&file=" + file, { muteHttpExceptions: true });

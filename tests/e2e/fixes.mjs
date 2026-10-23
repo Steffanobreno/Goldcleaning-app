@@ -1,5 +1,5 @@
-// Everyday fixes, end to end. Run after slice.mjs (Maria Lopez paid by Venmo, pet Biscuit).
-// Inactive clients tab · pet passed away and back · delete a note · remove a payment reopens
+// Everyday fixes, end to end. Run after slice.mjs (Ana Silva paid by Venmo).
+// Inactive clients tab · a home the client no longer has · delete a note · remove a payment reopens
 // the bill · bad ids show "not found" · wrong passwords lock the login for a while.
 // Usage: node tests/e2e/fixes.mjs [baseUrl]
 import { chromium } from "playwright";
@@ -25,8 +25,8 @@ const login = async (password) => {
 await login("correct horse battery");
 await page.waitForURL(/\/today/);
 
-await page.goto(`${BASE}/clients?q=Maria`);
-await page.getByRole("link", { name: /Maria/ }).first().click();
+await page.goto(`${BASE}/clients?q=Ana`);
+await page.getByRole("link", { name: /Ana/ }).first().click();
 await page.waitForURL(/\/clients\/[0-9a-f-]+$/);
 const clientUrl = page.url();
 
@@ -40,27 +40,26 @@ step("add and delete a client note");
 
 // Inactive
 await page.getByRole("switch", { name: /Inactive customer/ }).click();
-await page.goto(`${BASE}/clients?q=Maria`);
-if (await page.getByRole("link", { name: /Maria Lopez/ }).count()) fail("inactive client still in the active list");
+await page.goto(`${BASE}/clients?q=Ana`);
+if (await page.getByRole("link", { name: /Ana Silva/ }).count()) fail("inactive client still in the active list");
 await page.getByRole("link", { name: "Inactive clients" }).click();
-await page.getByRole("link", { name: /Maria Lopez/ }).click();
+await page.getByRole("link", { name: /Ana Silva/ }).click();
 await page.getByRole("switch", { name: /Inactive customer/ }).click();
 step("inactive clients have their own list and can be made active again");
 
-// Pet passed away
+// A home the client no longer has: hidden, its cleanings stay.
 await page.goto(clientUrl);
-const petLink = page.locator(`a[href*="/pets/"]`).filter({ hasNotText: "Add pet" }).first();
-await petLink.click();
-await page.waitForURL(/\/pets\/[0-9a-f-]+$/);
-const petUrl = page.url();
-await page.getByRole("button", { name: /passed away/ }).click();
+await page.getByRole("link", { name: "Add home" }).click();
+await page.fill('input[name="label"]', "Old apartment");
+await page.fill('input[name="zip"]', "94402");
+await page.getByRole("button", { name: "Save home" }).click();
 await page.waitForURL(clientUrl);
-await page.getByText("In memory").waitFor();
-await page.goto(petUrl);
-await page.getByRole("button", { name: /still with us/ }).click();
+await page.getByRole("link", { name: /Old apartment/ }).click();
+await page.getByRole("button", { name: "The client no longer has this home" }).click();
 await page.waitForURL(clientUrl);
-if (await page.getByText("In memory").count()) fail("pet should be back");
-step("pet passed away shows 'In memory' and can be undone");
+if (await page.getByText("Old apartment").count()) fail("archived home still shown");
+await page.getByText(/Home · 3 bd/).waitFor();
+step("a second home can be added and then hidden; the first stays");
 
 // Remove a payment
 const visit = await page.locator('a[href^="/appointments/"]:not([href*="new"])').first().getAttribute("href");

@@ -90,7 +90,7 @@ export default async function ClientAppointmentPage({ params, searchParams }: Pa
         {a.status === "cancelled" && <Notice kind="warn">This appointment is cancelled.</Notice>}
         {a.status === "completed" && <Notice kind="success">All done. Thank you!</Notice>}
         {a.status === "en_route" && <Notice kind="success">We&apos;re on our way to you! 🚐</Notice>}
-        {a.status === "in_progress" && <Notice kind="success">Grooming in progress. 🛁</Notice>}
+        {a.status === "in_progress" && <Notice kind="success">Cleaning in progress. ✨</Notice>}
         {a.status === "declined" && <Notice kind="warn">Sorry, we couldn&apos;t take this request. Please pick another time.</Notice>}
         {a.status === "no_show" && <Notice kind="warn">We missed you at this visit. Text us to book a new time.</Notice>}
         {sp.needSign && a.status === "unconfirmed" && (

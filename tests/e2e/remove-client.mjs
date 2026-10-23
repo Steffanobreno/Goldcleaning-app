@@ -1,5 +1,5 @@
-// Removing a client for good. Run after slice.mjs and booking.mjs: Maria Lopez has a paid
-// visit; Ana Silva has visits, a signed agreement, a pet photo and messages.
+// Removing a client for good. Run after slice.mjs and booking.mjs: Ben Costa has a cleaning
+// booked; Bea Test has an accepted weekly series and emails.
 // Usage: node tests/e2e/remove-client.mjs [baseUrl]
 import { chromium } from "playwright";
 
@@ -21,7 +21,7 @@ await page.fill('input[name="password"]', "correct horse battery");
 await page.click('button[type="submit"]');
 await page.waitForURL(/\/today/);
 
-for (const name of ["Maria Lopez", "Ana Silva"]) {
+for (const name of ["Ben Costa", "Bea Test"]) {
   await page.goto(`${BASE}/clients?q=${encodeURIComponent(name.split(" ")[0])}`);
   await page.getByRole("link", { name: new RegExp(name) }).first().click();
   await page.waitForURL(/\/clients\/[0-9a-f-]+$/);

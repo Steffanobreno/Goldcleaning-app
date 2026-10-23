@@ -7,7 +7,7 @@ import { Card, Page, PageHeader } from "@/components/ui";
 import { updateGroomerAction } from "../actions";
 import { GroomerForm } from "../groomer-form";
 
-export const metadata: Metadata = { title: "Groomer" };
+export const metadata: Metadata = { title: "Team member" };
 
 export default async function GroomerPage({ params }: PageProps<"/settings/team/[id]">) {
   const staff = await requireStaff();

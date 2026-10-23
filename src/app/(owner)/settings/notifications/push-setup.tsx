@@ -81,13 +81,13 @@ export function PushSetup({ publicKey }: { publicKey: string }) {
       {state === "needs-home-screen" && (
         <Notice kind="warn">
           On the iPhone, notifications only work from the app on your Home Screen. In Safari tap Share → Add to Home Screen,
-          open Woofers from the Home Screen icon, and come back here.
+          open Gold from the Home Screen icon, and come back here.
         </Notice>
       )}
       {state === "unsupported" && <Notice kind="warn">This browser can&apos;t show notifications. Use Safari on the iPhone (from the Home Screen) or Chrome.</Notice>}
       {state === "denied" && (
         <Notice kind="warn">
-          Notifications are blocked for this app. iPhone: Settings → Notifications → Woofers → Allow Notifications. Then come back here.
+          Notifications are blocked for this app. iPhone: Settings → Notifications → Gold → Allow Notifications. Then come back here.
         </Notice>
       )}
       {state === "off" && <Button className="w-full py-3.5 text-base" disabled={pending} onClick={turnOn}>{pending ? "…" : "Turn on notifications on this device"}</Button>}

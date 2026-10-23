@@ -4,7 +4,7 @@ import { sql } from "@/lib/db";
 import { Card, Field, Input, Page, PageHeader, Textarea } from "@/components/ui";
 import { WEEKDAYS } from "@/lib/format";
 import { CopyField } from "@/components/copy-field";
-import { saveBookingSettingsAction } from "../actions";
+import { saveBookingSettingsAction, saveSlotsAction } from "../actions";
 import { SimpleForm } from "../forms";
 
 export const metadata: Metadata = { title: "Online booking" };
@@ -61,13 +61,26 @@ export default async function BookingSettingsPage() {
             </Field>
           </SimpleForm>
         </Card>
-        <Card className="space-y-2">
+        <Card className="space-y-3">
           <h2 className="font-bold">Start times clients can pick</h2>
-          <ul className="text-sm">
-            {slots.map((x) => (
-              <li key={`${x.weekday}-${x.time}`}>{WEEKDAYS[x.weekday]} · {x.time} ({x.label})</li>
-            ))}
-          </ul>
+          <p className="text-sm text-muted">One cleaning per start time. Leave a time empty when that day has no morning or afternoon.</p>
+          <SimpleForm action={saveSlotsAction} submitLabel="Save start times" savedLabel="Start times saved.">
+            <div className="grid grid-cols-[1fr_6.5rem_6.5rem] items-center gap-2 text-sm">
+              <span />
+              <span className="text-xs font-semibold text-muted">Morning</span>
+              <span className="text-xs font-semibold text-muted">Afternoon</span>
+              {[1, 2, 3, 4, 5, 6, 0].map((d) => {
+                const day = slots.filter((x) => x.weekday === d);
+                return [
+                  <span key={`l${d}`} className="font-medium">{WEEKDAYS[d]}</span>,
+                  <Input key={`m${d}`} type="time" name={`${d}:morning`} aria-label={`${WEEKDAYS[d]} morning`}
+                    defaultValue={day.find((x) => x.time < "12:00")?.time ?? ""} className="px-2" />,
+                  <Input key={`a${d}`} type="time" name={`${d}:afternoon`} aria-label={`${WEEKDAYS[d]} afternoon`}
+                    defaultValue={day.find((x) => x.time >= "12:00")?.time ?? ""} className="px-2" />,
+                ];
+              })}
+            </div>
+          </SimpleForm>
         </Card>
         <p className="text-center text-xs text-muted">
           Requests show up in Today and in Requests. They hold the time until you accept or decline.

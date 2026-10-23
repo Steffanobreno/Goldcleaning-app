@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 // The ☰ menu: opens from the left with the logo, the owner's name and every section of
 // the app. The header's menu button opens it with a window event, so any page header can.
 
-const OPEN = "woofers:open-menu";
+const OPEN = "gold:open-menu";
 export const openMenu = () => window.dispatchEvent(new Event(OPEN));
 
 const ITEMS = [
@@ -36,7 +36,7 @@ export function SideMenu({ staffName, businessName, requests }: { staffName: str
         className="flex h-full w-[78%] max-w-xs flex-col overflow-y-auto bg-navy-deep pb-[env(safe-area-inset-bottom)] pt-[max(1.5rem,env(safe-area-inset-top))] text-white shadow-2xl">
         <div className="px-6 pb-6 text-center">
           {/* eslint-disable-next-line @next/next/no-img-element -- small static logo */}
-          <img src="/logo.png" alt="" width={400} height={380} className="mx-auto h-24 w-24 rounded-full bg-white object-contain p-3.5" />
+          <img src="/logo.png" alt="" width={400} height={380} className="mx-auto h-24 w-24 rounded-3xl" />
           <p className="mt-3 font-bold">{staffName} <span className="font-normal text-white/60">(Owner)</span></p>
           <p className="text-sm text-white/60">{businessName}</p>
         </div>

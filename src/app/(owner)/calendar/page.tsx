@@ -320,7 +320,7 @@ function WeekGrid({ start, today, appts, blocksOn, hoursOf, tz }: {
               <span className={`mx-auto flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${d === today ? "bg-brand text-white" : ""}`}>
                 {Number(d.slice(8))}
               </span>
-              <span className="block text-[11px] text-muted">🐶 {n}</span>
+              <span className="block text-[11px] text-muted">{n ? `${n} ✦` : "\u00a0"}</span>
             </Link>
           );
         })}

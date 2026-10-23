@@ -27,7 +27,7 @@ export default async function TeamPage() {
                 <span className="min-w-0 flex-1">
                   <span className="block font-semibold">{g.name}</span>
                   <span className="block truncate text-sm text-muted">
-                    {g.role === "owner" ? "Owner" : g.active ? "Groomer" : "Not active"}{g.phone ? ` · ${phoneLabel(g.phone)}` : ""}
+                    {g.role === "owner" ? "Owner" : g.active ? "Team" : "Not active"}{g.phone ? ` · ${phoneLabel(g.phone)}` : ""}
                   </span>
                 </span>
                 <ChevronRight size={20} className="text-muted" />
@@ -36,16 +36,16 @@ export default async function TeamPage() {
           ))}
         </ul>
         <Card className="space-y-3">
-          <h2 className="font-bold">Add a groomer</h2>
+          <h2 className="font-bold">Add a team</h2>
           <p className="text-sm text-muted">
-            Each groomer gets their own color and their own route on Today. When booking, you choose who does the visit.
-            They start with your working hours.
+            For a second cleaning team later: each team gets its own color and its own day on Today. When booking, you choose
+            who does the cleaning. They start with your working hours. Online booking times use the first team only.
           </p>
-          <GroomerForm action={addGroomerAction} colors={GROOMER_COLORS} submit="Add groomer" />
+          <GroomerForm action={addGroomerAction} colors={GROOMER_COLORS} submit="Add team" />
         </Card>
         <p className="px-1 text-xs text-muted">
-          For now groomers don&apos;t log in: you book and manage their visits. Online booking requests come to you, and you can
-          assign them to anyone.
+          Teams don&apos;t log in: you book and manage their cleanings. Online booking requests come to you, and you can give
+          them to any team.
         </p>
       </Page>
     </>

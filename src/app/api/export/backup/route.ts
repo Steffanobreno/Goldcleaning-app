@@ -8,6 +8,6 @@ export async function GET() {
   if (!staff) return new Response("Not logged in", { status: 401 });
   const stamp = formatInTimeZone(new Date(), staff.timezone, "yyyy-MM-dd");
   return new Response(JSON.stringify(await buildBackup(staff.businessId)), {
-    headers: { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="woofers-backup-${stamp}.json"`, "Cache-Control": "no-store" },
+    headers: { "Content-Type": "application/json", "Content-Disposition": `attachment; filename="gold-cleaning-backup-${stamp}.json"`, "Cache-Control": "no-store" },
   });
 }

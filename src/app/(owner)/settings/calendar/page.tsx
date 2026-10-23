@@ -28,16 +28,16 @@ export default async function CalendarSettingsPage() {
             <Notice kind="warn">Not connected yet. Follow the steps below once.</Notice>
           )}
           <p className="text-sm text-muted">
-            A small free script in the Woofers Google account copies every visit (and every online request) into a
+            A small free script in the business Google account copies every visit (and every online request) into a
             &quot;{b.name}&quot; calendar: service, home size, price, phone and address. New, moved and cancelled visits show up within
             15 minutes, from 6am to 9pm. Set it up once, on a computer.
           </p>
           <ol className="list-decimal space-y-1.5 pl-5 text-sm">
-            <li>Open <strong>script.google.com</strong> signed in with the Woofers Google account → <strong>New project</strong>.</li>
+            <li>Open <strong>script.google.com</strong> signed in with the business Google account → <strong>New project</strong>.</li>
             <li>Delete what is in the editor and paste the script below (<strong>Copy</strong>).</li>
             <li>Press <strong>Save</strong> (disk icon). In the bar at the top choose <strong>setup</strong>, then <strong>Run</strong>.</li>
             <li>
-              Google asks for permission: <strong>Review permissions</strong> → the Woofers account →
+              Google asks for permission: <strong>Review permissions</strong> → the business account →
               <strong> Advanced → Go to Untitled project</strong> → <strong>Allow</strong>. It is your own script, so Google
               shows the &quot;not verified&quot; notice.
             </li>

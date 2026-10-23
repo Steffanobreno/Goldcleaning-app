@@ -12,33 +12,59 @@ export async function saveServiceAction(serviceId: string | null, _: FormState, 
   const staff = await requireStaff();
   const name = String(form.get("name") ?? "").trim();
   const kind = form.get("kind") === "extra" ? "extra" : "service";
-  const category = String(form.get("category") ?? "").trim() || (kind === "extra" ? "Extras" : null);
+  const category = kind === "extra" ? "Extras" : null;
   const per_unit = kind === "extra" && form.get("per_unit") === "on";
-  const duration = Number(form.get("duration_min"));
-  const price = parseMoney(form.get("price"));
+  const pricing = kind === "service" && form.get("pricing") === "quote" ? "quote" : "rate";
+  const recurring = kind === "service" && form.get("recurring") === "on";
+  const icon = kind === "extra" ? String(form.get("icon") ?? "").trim().slice(0, 30) || null : null;
+  const price = kind === "extra" ? parseMoney(form.get("price")) : 0;
   const description = String(form.get("description") ?? "").trim() || null;
   const active = form.get("active") === "on";
   const online = form.get("online_bookable") === "on";
-  if (!name) return { error: "Give the service a name." };
-  if (!Number.isInteger(duration) || duration < 0 || duration > 600) return { error: "Duration must be 0 to 600 minutes." };
-  if (price === null) return { error: "Enter a price, like 129 or 129.00." };
-
+  if (!name) return { error: "Give it a name." };
+  if (price === null) return { error: "Enter a price, like 45 or 45.00." };
+  const v = { name, kind, category, per_unit, pricing, recurring, icon, price_cents: price, description, active, online_bookable: online };
   if (serviceId) {
-    await sql`
-      update services set name = ${name}, kind = ${kind}, category = ${category}, per_unit = ${per_unit},
-        duration_min = ${duration}, price_cents = ${price}, description = ${description},
-        active = ${active}, online_bookable = ${online}
-      where id = ${serviceId} and business_id = ${staff.businessId}`;
+    await sql`update services set ${sql(v)} where id = ${serviceId} and business_id = ${staff.businessId}`;
   } else {
-    await sql`
-      insert into services (business_id, name, kind, category, per_unit, duration_min, price_cents, description,
-                            active, online_bookable, sort_order)
-      values (${staff.businessId}, ${name}, ${kind}, ${category}, ${per_unit}, ${duration}, ${price}, ${description},
-              ${active}, ${online},
-              (select coalesce(max(sort_order), 0) + 1 from services where business_id = ${staff.businessId}))`;
+    const [{ next }] = await sql`select coalesce(max(sort_order), 0) + 1 as next from services where business_id = ${staff.businessId}`;
+    await sql`insert into services ${sql({ ...v, business_id: staff.businessId, duration_min: 0, sort_order: next })}`;
   }
   revalidatePath("/settings/services");
   redirect("/settings/services");
+}
+
+/**
+ * Saves a cleaning's prices: one row per frequency (start, each extra bedroom, full bath and
+ * half bath, in dollars). A row left empty is not offered. Booked visits keep their prices.
+ */
+export async function saveRatesAction(serviceId: string, _: FormState, form: FormData): Promise<FormState> {
+  const staff = await requireStaff();
+  const [svc] = await sql`select id, recurring from services where id = ${serviceId} and business_id = ${staff.businessId} and kind = 'service'`;
+  if (!svc) return { error: "Service not found." };
+  const freqs = svc.recurring ? ["one_time", "weekly", "biweekly", "every_4_weeks"] : ["one_time"];
+  const rows: { frequency: string; start_cents: number; bedroom_cents: number; full_bath_cents: number; half_bath_cents: number }[] = [];
+  for (const f of freqs) {
+    const fields = ["start", "bedroom", "full_bath", "half_bath"].map((k) => String(form.get(`${f}:${k}`) ?? "").trim());
+    if (fields.every((x) => x === "")) continue;
+    const cents = fields.map((x) => parseMoney(x));
+    if (cents.some((c) => c === null)) return { error: "Fill in every price of a row (0 is fine), or leave the whole row empty." };
+    const [start, bedroom, full, half] = cents as number[];
+    rows.push({ frequency: f, start_cents: start, bedroom_cents: bedroom, full_bath_cents: full, half_bath_cents: half });
+  }
+  if (rows.length === 0) return { error: "Set at least one row of prices." };
+  await sql.begin(async (tx) => {
+    await tx`delete from service_rates where service_id = ${serviceId} and not (frequency = any(${rows.map((r) => r.frequency)}))`;
+    for (const r of rows) {
+      await tx`
+        insert into service_rates ${tx({ ...r, service_id: serviceId })}
+        on conflict (service_id, frequency) do update set start_cents = excluded.start_cents, bedroom_cents = excluded.bedroom_cents,
+          full_bath_cents = excluded.full_bath_cents, half_bath_cents = excluded.half_bath_cents`;
+    }
+  });
+  revalidatePath("/settings/services");
+  revalidatePath("/book");
+  return { saved: true };
 }
 
 export async function moveServiceAction(serviceId: string, direction: "up" | "down") {
@@ -131,6 +157,28 @@ export async function saveBookingSettingsAction(_: FormState, form: FormData): P
       min_notice_hours = ${notice}, booking_days_ahead = ${ahead}, cancellation_hours = ${cancelHours},
       service_cities = ${cities}
     where id = ${staff.businessId}`;
+  revalidatePath("/settings/booking");
+  return { saved: true };
+}
+
+/** The online start times: a morning and an afternoon time (or none) for each weekday. */
+export async function saveSlotsAction(_: FormState, form: FormData): Promise<FormState> {
+  const staff = await requireStaff();
+  const rows: { weekday: number; start_time: string; label: string }[] = [];
+  for (let d = 0; d < 7; d++) {
+    for (const [part, label] of [["morning", "Morning"], ["afternoon", "Afternoon"]] as const) {
+      const t = String(form.get(`${d}:${part}`) ?? "").trim();
+      if (!t) continue;
+      if (!/^\d{2}:\d{2}$/.test(t)) return { error: "Check the times (like 09:00)." };
+      if ((part === "morning") !== t < "12:00") return { error: `${label} times are ${part === "morning" ? "before" : "from"} noon.` };
+      rows.push({ weekday: d, start_time: t, label });
+    }
+  }
+  if (rows.length === 0) return { error: "Keep at least one start time, or turn online booking off above." };
+  await sql.begin(async (tx) => {
+    await tx`delete from booking_slots where business_id = ${staff.businessId}`;
+    await tx`insert into booking_slots ${tx(rows.map((r) => ({ ...r, business_id: staff.businessId })))}`;
+  });
   revalidatePath("/settings/booking");
   return { saved: true };
 }

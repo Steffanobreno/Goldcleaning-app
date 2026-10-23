@@ -74,7 +74,7 @@ export async function sendTestAction(id: string, _: CampaignState, form: FormDat
   const to = String(form.get("to") ?? "").trim();
   if (!/^\S+@\S+\.\S+$/.test(to)) return { error: "Type the email to send the test to." };
   const [b] = await sql`select name, phone, mailing_address, website_url from businesses where id = ${staff.businessId}`;
-  const vars = { first_name: "Alex", pet_name: "Luna", business: b.name, booking_link: `${appUrl()}/book` };
+  const vars = { first_name: "Alex", business: b.name, booking_link: `${appUrl()}/book` };
   const content = { preheader: c.preheader, banner: c.banner, headline: c.headline, body: c.body, buttonLabel: c.button_label, buttonUrl: c.button_url };
   const unsubscribeUrl = `${appUrl()}/marketing`;
   const [error] = await sendMany(b.name, [{

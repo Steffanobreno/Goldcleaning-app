@@ -75,7 +75,7 @@ export default async function MessagesSettingsPage() {
               <Input name="review_url" defaultValue={b.review_url ?? ""} placeholder="https://g.page/r/…/review" />
             </Field>
             <Field label="Website (where your Book Now button is)">
-              <Input name="website_url" defaultValue={b.website_url ?? ""} placeholder="https://woofersdogspa.com" />
+              <Input name="website_url" defaultValue={b.website_url ?? ""} placeholder="https://peninsulagoldcleaning.com" />
             </Field>
           </SimpleForm>
         </Card>

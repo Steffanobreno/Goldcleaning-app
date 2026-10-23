@@ -36,8 +36,8 @@ export function CampaignEditor({ campaign, banners, appUrl, sample, phone, maili
         <Field label="Campaign name" hint="Only you see this.">
           <Input name="name" value={c.name} onChange={set("name")} />
         </Field>
-        <Field label="Subject" hint="The first thing clients read in their inbox. {pet_name} and {first_name} work here too.">
-          <Input name="subject" value={c.subject} onChange={set("subject")} placeholder="We miss {pet_name}! 🐾" />
+        <Field label="Subject" hint="The first thing clients read in their inbox. {first_name} works here too.">
+          <Input name="subject" value={c.subject} onChange={set("subject")} placeholder="It's been a while, {first_name} ✨" />
         </Field>
         <Field label="Preview text" hint="The grey line after the subject in the inbox. A short teaser gets more opens.">
           <Input name="preheader" value={c.preheader} onChange={set("preheader")} placeholder="Your spa day is just a few taps away." />

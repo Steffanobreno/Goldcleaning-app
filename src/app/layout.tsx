@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Woofers Dog Spa", template: "%s · Woofers" },
-  description: "Scheduling, routes and checkout for Woofers Dog Spa.",
-  appleWebApp: { capable: true, title: "Woofers", statusBarStyle: "default" },
+  title: { default: "Gold Cleaning", template: "%s · Gold Cleaning" },
+  description: "Bookings, calendar and checkout for Peninsula Gold Cleaning.",
+  appleWebApp: { capable: true, title: "Gold", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {

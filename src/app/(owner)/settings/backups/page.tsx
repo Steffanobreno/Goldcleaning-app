@@ -29,17 +29,17 @@ export default async function BackupsPage() {
             <Notice kind="success">Working. Last backup: {when}.</Notice>
           )}
           <p className="text-sm text-muted">
-            Every Sunday night a free script in the Woofers Google account saves a copy of everything (clients, homes, visits,
-            payments, messages, settings) in a &quot;Woofers backups&quot; folder on Google Drive, plus the client list as a
+            Every Sunday night a free script in the business Google account saves a copy of everything (clients, homes, visits,
+            payments, messages, settings) in a &quot;Gold Cleaning backups&quot; folder on Google Drive, plus the client list as a
             spreadsheet. It keeps the last 12 weeks. This copy is separate from the app&apos;s database.
           </p>
           <ol className="list-decimal space-y-1.5 pl-5 text-sm">
-            <li>On the iPad or a computer, open <strong>script.google.com</strong> with the Woofers Google account (on the iPad: Safari → <strong>aA</strong> → <strong>Request Desktop Website</strong>).</li>
+            <li>On the iPad or a computer, open <strong>script.google.com</strong> with the business Google account (on the iPad: Safari → <strong>aA</strong> → <strong>Request Desktop Website</strong>).</li>
             <li>Tap <strong>New project</strong>. Use a new one, not the Google Calendar one.</li>
             <li>Delete what is in the editor and paste the script below (<strong>Copy</strong>).</li>
             <li>Tap <strong>Save</strong> (disk icon). In the bar at the top choose <strong>setup</strong>, then <strong>Run</strong>.</li>
-            <li>Google asks for permission: <strong>Review permissions</strong> → the Woofers account → <strong>Advanced → Go to Untitled project</strong> → <strong>Allow</strong>.</li>
-            <li>Open <strong>Google Drive</strong>: the &quot;Woofers backups&quot; folder has today&apos;s two files. Come back here: it says &quot;Working&quot;.</li>
+            <li>Google asks for permission: <strong>Review permissions</strong> → the business account → <strong>Advanced → Go to Untitled project</strong> → <strong>Allow</strong>.</li>
+            <li>Open <strong>Google Drive</strong>: the &quot;Gold Cleaning backups&quot; folder has today&apos;s two files. Come back here: it says &quot;Working&quot;.</li>
           </ol>
           <CopyField label="Backup script (keep it private: it has your key)" value={script} multiline />
         </Card>

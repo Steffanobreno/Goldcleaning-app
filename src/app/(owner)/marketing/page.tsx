@@ -106,7 +106,7 @@ export default async function MarketingPage() {
         )}
 
         <p className="text-center text-xs text-muted">
-          Emails go out from the Woofers Gmail. Gmail sends about 450 a day, so bigger lists finish the next day.
+          Emails go out from the business Gmail. Gmail sends about 450 a day, so bigger lists finish the next day.
           {left < 450 && ` ${left} left today.`}
         </p>
         <form action={setMarketingReminderAction.bind(null, !b.marketing_reminder)} className="card flex items-center justify-between gap-3 px-4 py-3">

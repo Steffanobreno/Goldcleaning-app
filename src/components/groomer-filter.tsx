@@ -11,7 +11,7 @@ export function GroomerFilter({ groomers, current, href, allowAll = true }: {
   const chip = (on: boolean) =>
     `flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold ${on ? "border-navy bg-navy text-white" : "border-line bg-surface"}`;
   return (
-    <nav aria-label="Groomer" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+    <nav aria-label="Team" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
       {allowAll && <Link href={href(null)} aria-current={current === null ? "true" : undefined} className={chip(current === null)}>All</Link>}
       {groomers.map((g) => (
         <Link key={g.id} href={href(g.id)} aria-current={current === g.id ? "true" : undefined} className={chip(current === g.id)}>

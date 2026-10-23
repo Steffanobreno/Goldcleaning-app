@@ -56,7 +56,7 @@ await page.getByRole("link", { name: /12:00 PM – 1:30 PM/ }).waitFor();
 step("edit the block");
 
 await page.goto(`${BASE}/calendar?view=week&date=${day}`);
-if ((await page.getByRole("link", { name: "Lunch" }).count()) < 1) fail("block missing on the week view");
+await page.getByRole("link", { name: "Lunch" }).first().waitFor({ timeout: 15_000 }).catch(() => fail("block missing on the week view"));
 await page.goto(`${BASE}/calendar?view=agenda&date=${day}`);
 await page.getByRole("link", { name: /Lunch.*12:00 PM – 1:30 PM/ }).waitFor();
 step("block on week and agenda views");
@@ -66,33 +66,36 @@ await page.goto(`${BASE}/calendar?view=day&date=${day}`);
 await page.getByRole("link", { name: /Lunch/ }).first().click();
 await page.getByRole("button", { name: "Remove this block" }).click();
 await page.waitForURL(/\/calendar\?date=/);
+await page.getByRole("region", { name: "Day schedule" }).waitFor(); // the day has loaded
 if ((await page.getByRole("link", { name: /Lunch/ }).count()) !== 0) fail("block not removed");
 step("remove one block");
 
 // Every week for 3 weeks, all day.
 await page.goto(`${BASE}/calendar/block?date=${day}&start=09:00`);
 await page.check('input[name="all_day"]');
-await page.fill('textarea[name="reason"]', "Van service");
+await page.fill('textarea[name="reason"]', "Day off");
 await page.selectOption('select[name="repeat"]', "1");
 const until = new Date(d.getTime() + 15 * 86_400_000).toISOString().slice(0, 10);
 await page.fill('input[name="until"]', until);
 await page.click('button[type="submit"]');
 await page.waitForURL(/\/calendar\?date=/);
-await page.getByRole("link", { name: /Van service.*All day/ }).waitFor();
+await page.getByRole("link", { name: /Day off.*All day/ }).waitFor();
 const next = new Date(d.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
 const last = new Date(d.getTime() + 14 * 86_400_000).toISOString().slice(0, 10);
 await page.goto(`${BASE}/calendar?view=day&date=${last}`);
-await page.getByRole("link", { name: /Van service/ }).waitFor();
+await page.getByRole("link", { name: /Day off/ }).waitFor();
 step("weekly all-day block repeats until the chosen day");
 
 await page.goto(`${BASE}/calendar?view=day&date=${next}`);
-await page.getByRole("link", { name: /Van service/ }).click();
+await page.getByRole("link", { name: /Day off/ }).click();
 await page.getByRole("button", { name: "Remove this and the next repeats" }).click();
 await page.waitForURL(/\/calendar\?date=/);
 await page.goto(`${BASE}/calendar?view=day&date=${last}`);
-if ((await page.getByRole("link", { name: /Van service/ }).count()) !== 0) fail("later repeats not removed");
+await page.getByRole("region", { name: "Day schedule" }).waitFor(); // the day has loaded
+if ((await page.getByRole("link", { name: /Day off/ }).count()) !== 0) fail("later repeats not removed");
 await page.goto(`${BASE}/calendar?view=day&date=${day}`);
-if ((await page.getByRole("link", { name: /Van service/ }).count()) !== 1) fail("earlier block should stay");
+await page.getByRole("region", { name: "Day schedule" }).waitFor(); // the day has loaded
+if ((await page.getByRole("link", { name: /Day off/ }).count()) !== 1) fail("earlier block should stay");
 step("remove this and the next repeats keeps the earlier one");
 
 // The slot menu also books.

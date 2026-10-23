@@ -53,7 +53,7 @@ export function icsCalendar(name: string, timezone: string, events: string[][]) 
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Woofers//Appointments//EN",
+    "PRODID:-//Peninsula Gold Cleaning//Appointments//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${icsEscape(name)}`,

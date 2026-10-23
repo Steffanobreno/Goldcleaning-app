@@ -1,5 +1,5 @@
 "use client";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { ActionForm } from "@/components/action-form";
 import { Button, Field, Input, Notice, Select, Textarea } from "@/components/ui";
 import { WEEKDAYS } from "@/lib/format";
@@ -12,6 +12,9 @@ export type ServiceValues = {
   kind: "service" | "extra";
   category: string | null;
   per_unit: boolean;
+  pricing: "rate" | "quote";
+  recurring: boolean;
+  icon: string | null;
   duration_min: number;
   price_cents: number;
   description: string | null;
@@ -19,47 +22,68 @@ export type ServiceValues = {
   online_bookable: boolean;
 };
 
+const ICONS = ["cabinet", "garage", "garage-floor", "oven", "fridge", "baseboard", "patio", "door", "window", "linens", "dishes", "blinds"];
+
+/**
+ * A cleaning (its prices per frequency are set on the Price list) or an extra (one price, per
+ * unit or not). Quote-only cleanings (Airbnb, office) have no online price.
+ */
 export function ServiceForm({ action, initial, categories }: { action: Action; initial?: ServiceValues; categories: string[] }) {
   const [state, formAction, pending] = useActionState(action, undefined);
+  const [kind, setKind] = useState(initial?.kind ?? "service");
   return (
     <ActionForm action={formAction} className="space-y-4">
       {state?.error && <Notice kind="error">{state.error}</Notice>}
       <Field label="Name">
         <Input name="name" defaultValue={initial?.name} required />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Type">
-          <Select name="kind" defaultValue={initial?.kind ?? "service"}>
-            <option value="service">Service</option>
-            <option value="extra">Extra</option>
-          </Select>
-        </Field>
-        <Field label="Category">
-          <Input name="category" defaultValue={initial?.category ?? ""} list="categories" placeholder="Kitchen" />
-          <datalist id="categories">
-            {categories.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-        </Field>
-      </div>
-      <label className="flex items-center gap-3 text-sm">
-        <input type="checkbox" name="per_unit" defaultChecked={initial?.per_unit ?? false} className="h-4 w-4" />
-        Extras only: charged per unit (the client picks how many)
-      </label>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Price ($)">
-          <Input
-            name="price"
-            inputMode="decimal"
-            defaultValue={initial ? (initial.price_cents / 100).toFixed(2) : ""}
-            required
-          />
-        </Field>
-        <Field label="Time (minutes)" hint="0 for extras that take no extra time.">
-          <Input name="duration_min" type="number" min={0} max={600} step={5} defaultValue={initial?.duration_min ?? 60} required />
-        </Field>
-      </div>
+      <Field label="Type">
+        <Select name="kind" value={kind} onChange={(e) => setKind(e.target.value as "service" | "extra")}>
+          <option value="service">Cleaning</option>
+          <option value="extra">Extra</option>
+        </Select>
+      </Field>
+      {kind === "service" ? (
+        <>
+          <Field label="Price">
+            <Select name="pricing" defaultValue={initial?.pricing ?? "rate"}>
+              <option value="rate">From the price list (bedrooms and bathrooms)</option>
+              <option value="quote">By quote (no price online)</option>
+            </Select>
+          </Field>
+          <label className="flex items-center gap-3 text-sm">
+            <input type="checkbox" name="recurring" defaultChecked={initial?.recurring ?? false} className="h-4 w-4" />
+            Can repeat (weekly, every 2 weeks, every 4 weeks)
+          </label>
+          <input type="hidden" name="price" value="0" />
+          <input type="hidden" name="duration_min" value="0" />
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Price ($)">
+              <Input name="price" inputMode="decimal" defaultValue={initial ? (initial.price_cents / 100).toFixed(2) : ""} required />
+            </Field>
+            <Field label="Icon">
+              <Select name="icon" defaultValue={initial?.icon ?? ""}>
+                <option value="">✨ Sparkle</option>
+                {ICONS.map((i) => <option key={i} value={i}>{i}</option>)}
+              </Select>
+            </Field>
+          </div>
+          <label className="flex items-center gap-3 text-sm">
+            <input type="checkbox" name="per_unit" defaultChecked={initial?.per_unit ?? false} className="h-4 w-4" />
+            Charged per unit (the client picks how many)
+          </label>
+          <input type="hidden" name="duration_min" value="0" />
+          <input type="hidden" name="category" value={initial?.category ?? "Extras"} />
+        </>
+      )}
+      {kind === "service" && (
+        <datalist id="categories">
+          {categories.map((c) => <option key={c} value={c} />)}
+        </datalist>
+      )}
       <Field label="Description (optional)">
         <Textarea name="description" defaultValue={initial?.description ?? ""} />
       </Field>
@@ -78,6 +102,8 @@ export function ServiceForm({ action, initial, categories }: { action: Action; i
   );
 }
 
+
+/** A settings form whose fields are passed as children; shows "Saved" or the error. */
 export function HoursForm({ action, hours }: { action: Action; hours: { weekday: number; start: string; end: string }[] }) {
   const [state, formAction, pending] = useActionState(action, undefined);
   const byDay = new Map(hours.map((h) => [h.weekday, h]));

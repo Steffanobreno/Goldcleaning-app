@@ -37,7 +37,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
     sql`select name, phone, email, mailing_address, website_url from businesses where id = ${staff.businessId}`,
   ]);
   if (!c) notFound();
-  const sample = { first_name: "Alex", pet_name: "Luna", business: b.name, booking_link: `${appUrl()}/book` };
+  const sample = { first_name: "Alex", business: b.name, booking_link: `${appUrl()}/book` };
   const editable = c.status === "draft" || c.status === "scheduled";
   const step = STEPS.find((s) => s.key === sp.step)?.key ?? "edit";
 

@@ -18,4 +18,5 @@ npm run dev                     # http://localhost:3000 → create the owner log
 ```
 
 Checks: `npm run typecheck`, `npm run lint`, `npm run test:unit`, and the e2e scripts in
-`tests/e2e/` (they need the dev server and a fresh database; pass `SETUP_CODE` if `.env.local` sets one).
+`tests/e2e/`. `sh scripts/e2e-all.sh` runs them all in order on a fresh local database (its
+header says how to start the dev server and the local mail catcher first).

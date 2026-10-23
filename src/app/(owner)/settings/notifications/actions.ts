@@ -27,7 +27,7 @@ export async function removePushSubscriptionAction(endpoint: string) {
 export async function testPushAction() {
   const staff = await requireStaff();
   const sent = await sendPush(staff.businessId, {
-    title: "Woofers Dog Spa",
+    title: "Gold Cleaning",
     body: "Notifications are on. You'll hear about new bookings, cancellations and reschedule requests here. 🐾",
     url: "/today",
   });

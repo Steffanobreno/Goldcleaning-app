@@ -7,9 +7,9 @@ import { logoutAction } from "@/app/login/actions";
 export const metadata: Metadata = { title: "Settings" };
 
 const LINKS = [
-  { href: "/settings/services", title: "Services and prices", text: "Packages, add-ons, prices and times" },
+  { href: "/settings/services", title: "Price list", text: "Cleanings, prices per frequency and extras" },
   { href: "/settings/hours", title: "Working hours", text: "Days and hours you take appointments" },
-  { href: "/settings/team", title: "Team", text: "Groomers, their colors and who does each visit" },
+  { href: "/settings/team", title: "Team", text: "Cleaning teams, their colors and who does each cleaning" },
   { href: "/settings/business", title: "Business", text: "Name, phone and booking link" },
   { href: "/settings/booking", title: "Online booking", text: "Booking page link, distance and notice rules" },
   { href: "/settings/notifications", title: "Notifications", text: "Pop-ups on your phone for new bookings, cancellations and reschedules" },
