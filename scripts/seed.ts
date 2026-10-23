@@ -1,168 +1,210 @@
-// Creates the Woofers Dog Spa business with its services, hours and SMS texts.
-// Safe to run more than once: it does nothing if a business already exists.
-// Usage: npm run db:seed
+// Creates Peninsula Gold Cleaning with its services, price list, extras, booking slots and
+// email texts (docs/design.md). Safe to run more than once: it does nothing if a business
+// already exists. Usage: npm run db:seed
 import postgres from "postgres";
 import { dbConfig } from "../src/lib/db-config";
-import { AGREEMENT_BODY, AGREEMENT_TITLE } from "./agreement";
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set");
 const db = dbConfig(url);
 const sql = postgres(db.url, { max: 1, prepare: db.prepare, onnotice: () => {} });
 
-type Size = "small" | "medium" | "large" | "xlarge";
-const SIZE_LABEL: Record<Size, string> = {
-  small: 'Small (12" or less)',
-  medium: 'Medium (12"-16")',
-  large: 'Large (16"-20")',
-  xlarge: 'X-Large (20" or up)',
-};
-
-const haircut: [Size, number, number][] = [
-  ["small", 120, 12900],
-  ["medium", 120, 14900],
-  ["large", 120, 17900],
-  ["xlarge", 180, 19900],
-];
-const bath: [Size, number, number][] = [
-  ["small", 120, 9900],
-  ["medium", 120, 10900],
-  ["large", 120, 12900],
-  ["xlarge", 120, 14900],
-];
-const addons: [string, number, number][] = [
-  ["Nail trim (included in every package)", 0, 0],
-  ["Dematting or shave-down fee", 0, 4500],
-  ["De-shedding", 0, 4500],
-  ["Nail painting", 0, 1500],
-  ["Sensitive care shampoo", 0, 2000],
-  ["Flea treatment bath", 0, 2000],
-  ["Hypoallergenic fragrance-free shampoo", 0, 1500],
-  ["Skunk odor removal", 180, 28000],
+// Where online bookings are accepted: the ZIP's city must be one of these. Foster City,
+// Hillsborough and Woodside ZIPs show up as San Mateo, Burlingame and Redwood City in the
+// ZIP data; Stanford is next to Palo Alto.
+const SERVICE_CITIES = [
+  "San Mateo", "Foster City", "Belmont", "San Carlos", "Redwood City", "Atherton", "Menlo Park",
+  "Portola Valley", "Woodside", "Palo Alto", "Los Altos", "Mountain View", "Sunnyvale", "Cupertino",
+  "Daly City", "South San Francisco", "San Francisco", "Brisbane", "San Bruno", "Millbrae",
+  "Burlingame", "Hillsborough", "Santa Clara", "San Jose", "Milpitas", "Hayward", "Fremont",
+  "Union City", "Stanford",
 ];
 
-// The owner's own message texts. Variables in {braces} are filled in when sending.
-// {link} is the client's page to see, confirm or cancel the visit (no login needed).
-const templates = [
+type Rate = [frequency: string, start: number, bedroom: number, fullBath: number, halfBath: number];
+const ONE_TIME_ROOMS = [2500, 4200, 1500] as const;
+const RECURRING_ROOMS = [2000, 3360, 1200] as const;
+
+const services: { name: string; pricing: "rate" | "quote"; recurring: boolean; description: string; rates: Rate[] }[] = [
   {
-    trigger: "booked",
-    email_subject: "Your appointment with {business}",
-    body: "From {business}, {client}, your appointment is booked for {date} at {time}. See or change it here: {link}",
+    name: "Regular Clean",
+    pricing: "rate",
+    recurring: true,
+    description: "Kitchens, bathrooms, dusting, vacuuming and mopping on your schedule.",
+    rates: [
+      ["one_time", 19100, ...ONE_TIME_ROOMS],
+      ["weekly", 15280, ...RECURRING_ROOMS],
+      ["biweekly", 16300, ...RECURRING_ROOMS],
+      ["every_4_weeks", 18300, ...RECURRING_ROOMS],
+    ],
   },
   {
+    name: "Deep Clean",
+    pricing: "rate",
+    recurring: false,
+    description: "Top to bottom: baseboards, grout, fixtures and built-up grime.",
+    rates: [["one_time", 33100, ...ONE_TIME_ROOMS]],
+  },
+  {
+    name: "Move In/Out Clean",
+    pricing: "rate",
+    recurring: false,
+    description: "An empty home, cleaned inside cabinets, drawers and appliances.",
+    rates: [["one_time", 33100, ...ONE_TIME_ROOMS]],
+  },
+  {
+    name: "Airbnb Turnover",
+    pricing: "quote",
+    recurring: false,
+    description: "Every host is different. Tell us about your place and we'll send a quote.",
+    rates: [],
+  },
+  {
+    name: "Office Cleaning",
+    pricing: "quote",
+    recurring: false,
+    description: "Offices, studios and small businesses. Tell us what you need for a quote.",
+    rates: [],
+  },
+];
+
+// [name, price in cents, per unit (shows − / + buttons), icon]
+const extras: [string, number, boolean, string][] = [
+  ["Inside Cabinets", 6500, false, "cabinet"],
+  ["Garage/Basement Full Interior Cleaning", 20000, true, "garage"],
+  ["Garage Floor", 5500, true, "garage-floor"],
+  ["Inside Oven", 4000, true, "oven"],
+  ["Inside Fridge", 4500, true, "fridge"],
+  ["Baseboards", 5000, false, "baseboard"],
+  ["Balcony / Patio", 7500, true, "patio"],
+  ["Outside Accessible Window / Balcony Door", 1700, true, "door"],
+  ["Inside Windows", 5000, false, "window"],
+  ["Linens & Towels", 4500, true, "linens"],
+  ["Handwash Dishes", 4000, false, "dishes"],
+  ["Additional Inside Window", 1000, true, "window"],
+  ["Wet Wipe Window Blinds", 1500, true, "blinds"],
+];
+
+// Variables in {braces} are filled in when sending (src/lib/messaging.ts).
+// {link} is the client's page to see, confirm or cancel the visit (no login needed).
+const sign = "\n\nPeninsula Gold Cleaning · (650) 434-2080";
+const templates = [
+  {
     trigger: "request_received",
-    email_subject: "We got your booking request",
-    body: "Hi {client}! {business} received your request for {date} at {time}. We'll text you as soon as it's confirmed.",
+    email_subject: "We got your cleaning request",
+    body: `Hi {client}! Thank you for choosing {business}. We received your request for {service} on {date} at {time}. We'll review it and confirm by email within 24 hours.${sign}`,
+  },
+  {
+    trigger: "request_accepted",
+    email_subject: "Your cleaning is confirmed",
+    body: `Hi {client}, your {service} is confirmed for {date} at {time}. See or change it here: {link}${sign}`,
+  },
+  {
+    trigger: "booked",
+    email_subject: "Your cleaning with {business}",
+    body: `Hi {client}, your {service} is booked for {date} at {time}. See or change it here: {link}${sign}`,
   },
   {
     trigger: "request_declined",
-    email_subject: "About your booking request",
-    body: "Hi {client}, sorry, we can't make {date} at {time} work. Please pick another time at {booking_url} or text us at {business_phone}.",
+    email_subject: "About your cleaning request",
+    body: `Hi {client}, we're sorry, we can't make {date} at {time} work. Please pick another time at {booking_url} or call or text us at {business_phone}.${sign}`,
   },
   {
     trigger: "reminder",
-    offset_days: 2,
+    offset_days: 1,
     send_at_time: "10:00",
-    only_if_unconfirmed: true,
-    email_subject: "Reminder: your appointment on {date}",
-    body: "From {business}, {client}, your next appointment is coming up on {date} at {time}. Please confirm or cancel here: {link}",
+    email_subject: "Reminder: your cleaning tomorrow",
+    body: `Hi {client}, a reminder that your {service} is tomorrow, {date} at {time}. Need to change something? {link}${sign}`,
   },
   {
     trigger: "confirmed",
-    email_subject: "Appointment confirmed",
-    body: "Thank you, {client}! Your appointment on {date} at {time} is confirmed. See you then! 🐾",
+    email_subject: "Thanks for confirming",
+    body: `Thank you, {client}! Your cleaning on {date} at {time} is confirmed. See you then!${sign}`,
   },
   {
     trigger: "cancelled",
-    email_subject: "Appointment cancelled",
-    body: "{client}, your appointment on {date} at {time} has been cancelled. Book again anytime at {booking_url} or text us at {business_phone}.",
+    email_subject: "Your cleaning was cancelled",
+    body: `Hi {client}, your cleaning on {date} at {time} has been cancelled. Book again anytime at {booking_url} or call or text us at {business_phone}.${sign}`,
   },
   {
-    trigger: "on_my_way",
-    body: "Hi {client}! {business} is on the way to you now 🚐",
-  },
-  {
-    trigger: "rebook",
-    send_at_time: "10:00",
-    email_subject: "Time for {pet}'s next groom?",
-    body: "From {business}, Hello {client}, it has been almost {days} days since {pet}'s last service. Would you like to book a new appointment? Book online: {booking_url} or text us {business_phone}",
+    trigger: "review_request",
+    offset_minutes: 120,
+    email_subject: "How did we do?",
+    body: `Hi {client}! Thank you for having us today. If you're happy with your cleaning, a quick Google review helps our small, women-led business a lot: {review_url}${sign}`,
   },
   {
     trigger: "abandoned_booking",
     offset_minutes: 120,
-    email_subject: "Finish booking {pet}'s spa day?",
-    body: "Hi {client}! Looks like you didn't get to finish booking {pet}'s visit with {business}. Pick a time here: {booking_url} or text us at {business_phone} and we'll book it for you. 🐾",
+    email_subject: "Finish booking your cleaning?",
+    body: `Hi {client}! Looks like you didn't get to finish booking your {service}. Pick a time here: {booking_url} or call or text us at {business_phone} and we'll book it for you.${sign}`,
   },
   {
-    trigger: "vaccine_due",
-    offset_days: 30,
-    send_at_time: "10:00",
-    email_subject: "{pet}'s {vaccine} vaccine expires soon",
-    body: "Hi {client}! Our records show {pet}'s {vaccine} vaccine expires on {expires}. When it's renewed, please text a photo of the new certificate to {business_phone}. Thank you! 🐾 {business}",
+    trigger: "quote_received",
+    email_subject: "We got your quote request",
+    body: `Hi {client}! Thank you for reaching out to {business}. We received your request and will get back to you within 24 hours with a quote, or to set up a quick visit.${sign}`,
   },
   {
-    trigger: "review_request",
-    offset_minutes: 30,
-    email_subject: "How did we do?",
-    body: "Hi! 😊🐾 It was a pleasure taking care of your pet today! We hope you loved your experience with {business}. If you have a moment, your review truly means a lot to us 💙 👉 Leave your review here: {review_url} Thank you so much for your trust, and we hope to see you again soon! 🚐✨",
+    trigger: "quote_new",
+    email_subject: "New quote request",
+    body: "New quote request from {client}. Open the app to see the details and photos.",
   },
 ];
 
 async function main() {
   const [existing] = await sql`select id from businesses limit 1`;
   if (existing) {
-    // Added after the first seed: make sure the service agreement exists.
-    const added = await sql`
-      insert into agreements (business_id, title, body)
-      select ${existing.id}, ${AGREEMENT_TITLE}, ${AGREEMENT_BODY}
-      where not exists (select 1 from agreements where business_id = ${existing.id})
-      returning id`;
-    console.log(added.length ? "added the service agreement" : "business already exists, nothing to seed");
+    console.log("business already exists, nothing to seed");
     return sql.end();
   }
 
   await sql.begin(async (tx) => {
     const [biz] = await tx`
-      insert into businesses (name, phone, booking_slug, start_zip, review_url, website_url, cancellation_hours, mailing_address)
-      values ('Woofers Dog Spa', '+16504800599', 'woofers', '94401',
-              'https://g.page/r/CQs7lH-SjO5jEAE/review', 'https://woofersdogspa.com', 48,
-              '1201 Monte Diablo Ave, San Mateo, CA 94401')
+      insert into businesses (name, phone, email, booking_slug, review_url, website_url, cancellation_hours,
+                              booking_days_ahead, min_notice_hours, online_requires_approval, service_cities)
+      values ('Peninsula Gold Cleaning', '+16504342080', 'bayareacserv@gmail.com', 'goldcleaning',
+              'https://g.page/r/CX5Xbuztgx9cEAE/review', 'https://peninsulagoldcleaning.com', 24,
+              60, 24, true, ${SERVICE_CITIES})
       returning id`;
-    // 48 hours: the cancellation notice in the service agreement.
-    await tx`insert into agreements (business_id, title, body) values (${biz.id}, ${AGREEMENT_TITLE}, ${AGREEMENT_BODY})`;
+    // The agreement feature stays off until the owners write one.
+    await tx`insert into agreements (business_id, title, body, required_online)
+             values (${biz.id}, 'Service Agreement', 'Write your service agreement here before asking clients to sign it.', false)`;
     const [staff] = await tx`
       insert into staff (business_id, name, role, color)
-      values (${biz.id}, 'Steffano', 'owner', '#1d6fb8')
+      values (${biz.id}, 'Amanda', 'owner', '#C6A45E')
       returning id`;
 
-    // Monday-Saturday 7am-7pm, Sunday off.
-    for (const weekday of [1, 2, 3, 4, 5, 6]) {
+    // Monday to Friday, 9 AM to 5 PM; online start times 9:00 (Morning) and 13:00 (Afternoon).
+    for (const weekday of [1, 2, 3, 4, 5]) {
       await tx`insert into working_hours (staff_id, weekday, start_time, end_time)
-               values (${staff.id}, ${weekday}, '07:00', '19:00')`;
+               values (${staff.id}, ${weekday}, '09:00', '17:00')`;
+      await tx`insert into booking_slots (business_id, weekday, start_time, label)
+               values (${biz.id}, ${weekday}, '09:00', 'Morning'), (${biz.id}, ${weekday}, '13:00', 'Afternoon')`;
     }
 
     let order = 0;
-    for (const [size, min, cents] of haircut) {
-      await tx`insert into services (business_id, name, kind, category, size_class, duration_min, price_cents, sort_order)
-               values (${biz.id}, ${"Full Haircut - " + SIZE_LABEL[size]}, 'service', 'Haircut + Bath', ${size}, ${min}, ${cents}, ${order++})`;
+    for (const s of services) {
+      const [row] = await tx`
+        insert into services (business_id, name, kind, description, duration_min, price_cents, pricing, recurring,
+                              online_bookable, sort_order)
+        values (${biz.id}, ${s.name}, 'service', ${s.description}, 180, 0, ${s.pricing}, ${s.recurring}, true, ${order++})
+        returning id`;
+      for (const [frequency, start, bedroom, fullBath, halfBath] of s.rates) {
+        await tx`insert into service_rates (service_id, frequency, start_cents, bedroom_cents, full_bath_cents, half_bath_cents)
+                 values (${row.id}, ${frequency}, ${start}, ${bedroom}, ${fullBath}, ${halfBath})`;
+      }
     }
-    for (const [size, min, cents] of bath) {
-      await tx`insert into services (business_id, name, kind, category, size_class, duration_min, price_cents, sort_order)
-               values (${biz.id}, ${"Bath - " + SIZE_LABEL[size]}, 'service', 'Bath', ${size}, ${min}, ${cents}, ${order++})`;
-    }
-    for (const [name, min, cents] of addons) {
-      await tx`insert into services (business_id, name, kind, category, duration_min, price_cents, sort_order)
-               values (${biz.id}, ${name}, 'addon', 'Add-on', ${min}, ${cents}, ${order++})`;
+    for (const [name, cents, perUnit, icon] of extras) {
+      await tx`insert into services (business_id, name, kind, category, duration_min, price_cents, per_unit, icon, sort_order)
+               values (${biz.id}, ${name}, 'extra', 'Extras', 0, ${cents}, ${perUnit}, ${icon}, ${order++})`;
     }
 
     for (const t of templates) {
       await tx`insert into message_templates (business_id, trigger, body, email_subject, offset_days, offset_minutes,
-                                             send_at_time, only_if_unconfirmed)
+                                             send_at_time)
                values (${biz.id}, ${t.trigger}, ${t.body}, ${t.email_subject ?? null}, ${t.offset_days ?? null},
-                       ${t.offset_minutes ?? null}, ${t.send_at_time ?? null}, ${t.only_if_unconfirmed ?? false})`;
+                       ${t.offset_minutes ?? null}, ${t.send_at_time ?? null})`;
     }
   });
-  console.log("seeded Woofers Dog Spa");
+  console.log("seeded Peninsula Gold Cleaning");
   await sql.end();
 }
 
