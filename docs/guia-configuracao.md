@@ -10,7 +10,8 @@ Ordem sugerida: 1 → 2 → 3 → 4 → 5. Cada passo funciona sozinho.
 
 1. Conta nova em **neon.tech** (plano Free, sem cartão), com o Gmail da empresa.
 2. Projeto na região **AWS US East 2 (Ohio)**, só **Postgres** marcado.
-3. Em **Connect**, copie a *connection string* (começa com `postgresql://`).
+3. Em **Connect**, deixe **Connection pooling** ligado e copie a *connection string* (começa com
+   `postgresql://` e o endereço tem `-pooler`; o app está preparado para ela).
    **Não mande essa string por chat ou e-mail:** ela é a senha do banco. Ela só é colada no
    Netlify (passo 2).
 
@@ -30,8 +31,9 @@ Ordem sugerida: 1 → 2 → 3 → 4 → 5. Cada passo funciona sozinho.
    - `CRON_SECRET` = uma senha longa qualquer (ex.: 40 letras e números aleatórios)
    - `SETUP_CODE` = um código só para criar o login da Amanda na primeira vez
 5. **Deploys → Trigger deploy → Deploy project**.
-6. Uma vez só, as tabelas e os dados da Gold: `npm run db:migrate` e `npm run db:seed`
-   (eu rodo daqui, sem precisar ver a senha, ou vocês rodam com a `DATABASE_URL` no terminal).
+6. Não precisa criar tabelas à mão: cada publicação primeiro cria ou atualiza as tabelas e, num
+   banco novo, coloca os dados da Gold (preços, extras, horários, cidades, e-mails). Se a
+   publicação falhar logo no começo, quase sempre é a `DATABASE_URL` colada errada.
 7. Abra `APP_URL/login` → crie o login de dono com o `SETUP_CODE`.
 
 Limites do Free: Netlify 300 créditos/mês (avisa por e-mail em 50%, 75% e 100%); Neon 100 horas
