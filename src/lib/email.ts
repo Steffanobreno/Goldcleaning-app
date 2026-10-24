@@ -35,6 +35,7 @@ export type EmailDetails = {
   address: string | null;
   lines: { name: string; price: string }[]; // the price lines: service, extra rooms, extras
   total: string; // "" when no prices are set
+  totalLabel?: string; // "Estimated" by default; "Total paid" on the thank-you email
   link: string | null;
   businessPhone: string | null;
   policy: string | null;
@@ -59,7 +60,7 @@ ${d.badge ? `<p style="margin:0 0 10px"><span style="display:inline-block;backgr
 ${row("When", `<strong>${escape(d.when)}</strong>`)}
 ${d.address ? row("Where", escape(d.address)) : ""}
 ${lines ? row("Cleaning", lines) : ""}
-${d.total ? row("Estimated", `<strong>${escape(d.total)}</strong>`) : ""}
+${d.total ? row(d.totalLabel ?? "Estimated", `<strong>${escape(d.total)}</strong>`) : ""}
 </table></div>
 ${d.link ? `<p style="margin:24px 0 0;text-align:center"><a href="${d.link}" style="display:inline-block;background:#0b1f3b;color:#ffffff;text-decoration:none;font-weight:700;padding:14px 28px;border-radius:999px">${d.badge === "Waiting for confirmation" ? "See my request" : "See, confirm or cancel"}</a></p>` : ""}
 ${d.calendar ? `<p style="margin:16px 0 0;text-align:center;font-size:14px;color:#5b6474">Add it to your calendar so you don't forget:</p>
@@ -68,37 +69,71 @@ ${d.policy ? `<p style="margin:18px 0 0;color:#5b6474;font-size:13px">${escape(d
 ${d.businessPhone ? `<p style="margin:8px 0 0;color:#5b6474;font-size:13px">Questions? Call or text us at <a href="tel:${escape(d.businessPhone)}" style="color:#0b1f3b">${escape(d.businessPhone)}</a>.</p>` : ""}`;
 }
 
+/** What goes with the message besides the appointment card: one big button and the footer lines. */
+export type EmailExtras = {
+  cta?: { label: string; url: string } | null;
+  footer?: { phone?: string | null; address?: string | null } | null;
+};
+
+const appBase = () => (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+
+const BUTTONS: Partial<Record<string, string>> = {
+  review_request: "Leave a Google review",
+  abandoned_booking: "Finish my booking",
+  rebook: "Book my next cleaning",
+  cancelled: "Book again",
+  request_declined: "Pick another time",
+};
+
 /**
- * The Gold Cleaning email: the name on top, the message, then (for appointment emails) a card with
- * the date, address, price lines, total and a button to see, confirm or cancel; the
- * business name at the bottom. Inline styles only, since email apps ignore style sheets.
+ * The big button for emails that are mostly one link (review, finish booking, rebook...): the
+ * first link in the message. The link stays in the words too, for apps that hide buttons.
  */
-export function emailHtml(text: string, fromName: string, details?: EmailDetails | null) {
+export function ctaFor(trigger: string | null, text: string): EmailExtras["cta"] {
+  const label = trigger ? BUTTONS[trigger] : null;
+  const url = label ? text.match(/https?:\/\/[^\s<]+/)?.[0] : null;
+  return label && url ? { label, url } : null;
+}
+
+/**
+ * The Gold Cleaning email: the logo on a navy band, the message, then (for appointment emails) a
+ * card with the date, address, price lines, total and a button to see, confirm or cancel;
+ * the business name, address and phone at the bottom. Inline styles only, since email apps
+ * ignore style sheets.
+ */
+export function emailHtml(text: string, fromName: string, details?: EmailDetails | null, extras?: EmailExtras | null) {
   const link = details ? null : text.match(/https?:\/\/\S+\/a\/[0-9a-f]+/)?.[0];
   // With the card, the raw link in the text is redundant: the button opens it.
   const shown = details?.link ? text.replace(/\s*(See or change it here:|Please confirm or cancel here:)?\s*https?:\/\/\S+\/a\/[0-9a-f]+\S*/g, "") : text;
   const body = escape(shown)
     .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#0b1f3b;word-break:break-all">$1</a>')
     .replace(/\n/g, "<br>");
-  const logo = `<p style="margin:0 0 16px;text-align:center;font-family:Georgia,serif;font-weight:700;letter-spacing:4px;font-size:14px;color:#0b1f3b">GOLD&nbsp;CLEANING</p>`;
+  const header = `<div style="background:#0b1f3b;padding:24px 24px 20px;text-align:center">
+<img src="${appBase()}/logo.png" width="84" height="84" alt="Gold Cleaning" style="display:block;margin:0 auto 4px;border:0">
+<p style="margin:0;font-family:Georgia,serif;font-weight:700;letter-spacing:5px;font-size:12px;color:#d9b45a">PENINSULA&nbsp;GOLD&nbsp;CLEANING</p>
+</div><div style="height:4px;background:#c6a45e"></div>`;
   const button = link
     ? `<p style="margin:24px 0 0;text-align:center"><a href="${link}" style="display:inline-block;background:#0b1f3b;color:#ffffff;text-decoration:none;font-weight:700;padding:14px 28px;border-radius:999px">See my appointment</a></p>`
-    : "";
+    : extras?.cta
+      ? `<p style="margin:24px 0 0;text-align:center"><a href="${escape(extras.cta.url)}" style="display:inline-block;background:#0b1f3b;color:#ffffff;text-decoration:none;font-weight:700;padding:14px 28px;border-radius:999px">${escape(extras.cta.label)}</a></p>`
+      : "";
+  const f = extras?.footer;
   return `<div style="background:#f5f4f0;padding:24px 12px;font-family:-apple-system,system-ui,Segoe UI,Roboto,sans-serif">
-<div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:20px;padding:28px 24px;color:#0b1f3b;font-size:16px;line-height:1.55">
-${logo}<div>${body}</div>${details ? detailsHtml(details) : button}
+<div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:20px;overflow:hidden;color:#0b1f3b;font-size:16px;line-height:1.55">
+${header}
+<div style="padding:28px 24px"><div>${body}</div>${details ? detailsHtml(details) + (details.link ? "" : button) : button}</div>
 </div>
-<p style="max-width:520px;margin:16px auto 0;text-align:center;color:#5b6474;font-size:13px">${escape(fromName)} · House cleaning on the Peninsula and the South Bay</p>
+<p style="max-width:520px;margin:16px auto 0;text-align:center;color:#5b6474;font-size:13px;line-height:1.6">${escape(fromName)} · House cleaning on the Peninsula and the South Bay${f?.address ? `<br>${escape(f.address)}` : ""}${f?.phone ? `<br><a href="tel:${escape(f.phone)}" style="color:#5b6474">${escape(f.phone)}</a>` : ""}<br><a href="https://peninsulagoldcleaning.com" style="color:#5b6474">peninsulagoldcleaning.com</a></p>
 </div>`;
 }
 
 export async function sendEmail({
-  to, subject, text, fromName, details,
-}: { to: string; subject: string; text: string; fromName: string; details?: EmailDetails | null }) {
+  to, subject, text, fromName, details, extras,
+}: { to: string; subject: string; text: string; fromName: string; details?: EmailDetails | null; extras?: EmailExtras | null }) {
   const t = getTransport();
   if (!t) throw new Error("Email is not set up (GMAIL_USER / GMAIL_APP_PASSWORD).");
   await t.sendMail({
-    from: { name: fromName, address: process.env.GMAIL_USER!.trim() }, to, subject, text, html: emailHtml(text, fromName, details),
+    from: { name: fromName, address: process.env.GMAIL_USER!.trim() }, to, subject, text, html: emailHtml(text, fromName, details, extras),
     // Gmail and Apple Mail show the attached visit with an "Add to calendar" option.
     attachments: details?.calendar
       ? [{ filename: "gold-cleaning.ics", content: details.calendar.ics, contentType: "text/calendar; charset=utf-8; method=PUBLISH" }]

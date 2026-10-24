@@ -1,7 +1,7 @@
 import "server-only";
 import { formatInTimeZone } from "date-fns-tz";
 import { sql } from "./db";
-import { emailConfigured, sendEmail, type EmailDetails } from "./email";
+import { ctaFor, emailConfigured, sendEmail, type EmailDetails } from "./email";
 import { sendPush } from "./push";
 import { clientEvent } from "./client-calendar";
 import { lastSentByTemplate, processCampaigns } from "./data/marketing";
@@ -267,6 +267,7 @@ const HEADINGS: Partial<Record<Trigger, string>> = {
 
 /** The appointment card for an email about a visit, or null for messages without one. */
 export async function emailDetails(appointmentId: string, trigger: Trigger): Promise<EmailDetails | null> {
+  if (trigger === "review_request") return finishedDetails(appointmentId);
   const heading = HEADINGS[trigger];
   if (!heading) return null;
   const [a] = await sql<{ start_at: Date; end_at: Date; status: string; address_line: string | null; public_token: string;
@@ -303,6 +304,36 @@ export async function emailDetails(appointmentId: string, trigger: Trigger): Pro
   };
 }
 
+/** The summary in the thank-you email after checkout: what was done and what was paid. */
+async function finishedDetails(appointmentId: string): Promise<EmailDetails | null> {
+  const [a] = await sql<{ start_at: Date; address_line: string | null; timezone: string; phone: string | null;
+                         tip_cents: number | null; paid_cents: number | null;
+                         lines: { name: string; qty: number; price_cents: number }[] }[]>`
+    select a.start_at, a.address_line, b.timezone, b.phone, i.tip_cents, i.paid_cents,
+      coalesce((select json_agg(json_build_object('name', l.name, 'qty', l.qty, 'price_cents', l.price_cents) order by l.created_at, l.id)
+                from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
+                where ah.appointment_id = a.id), '[]'::json) as lines
+    from appointments a join businesses b on b.id = a.business_id
+    left join invoices i on i.appointment_id = a.id and i.status = 'closed'
+    where a.id = ${appointmentId}`;
+  if (!a) return null;
+  const lines = a.lines.map((l) => ({ name: l.qty > 1 ? `${l.name} × ${l.qty}` : l.name, price: money(l.price_cents) }));
+  if (a.tip_cents) lines.push({ name: "Tip, thank you!", price: money(a.tip_cents) });
+  return {
+    heading: "Your visit is complete",
+    badge: "Thank you!",
+    when: `${formatInTimeZone(a.start_at, a.timezone, "EEEE, MMMM d")} · ${formatInTimeZone(a.start_at, a.timezone, "h:mm a")}`,
+    address: a.address_line,
+    lines,
+    total: a.paid_cents ? money(a.paid_cents) : "",
+    totalLabel: "Total paid",
+    link: null,
+    businessPhone: phoneLabel(a.phone) || null,
+    policy: null,
+    calendar: null,
+  };
+}
+
 /** Sends waiting emails. Each row is claimed first, so two runs never send the same email. */
 export async function sendQueuedEmails(businessId: string) {
   if (!emailConfigured()) return;
@@ -310,17 +341,20 @@ export async function sendQueuedEmails(businessId: string) {
             where business_id = ${businessId} and channel = 'email' and status = 'queued'
               and created_at < now() - interval '2 days'`;
   const rows = await sql<{ id: string; to_email: string; subject: string; body: string; name: string;
-                          appointment_id: string | null; template_trigger: Trigger | null }[]>`
+                          appointment_id: string | null; template_trigger: Trigger | null;
+                          phone: string | null; mailing_address: string | null }[]>`
     update messages m set status = 'handed_off'
     from businesses b
     where b.id = m.business_id and m.id in (
       select id from messages where business_id = ${businessId} and channel = 'email' and status = 'queued'
       order by created_at limit 50 for update skip locked)
-    returning m.id, m.to_email, m.subject, m.body, b.name, m.appointment_id, m.template_trigger`;
+    returning m.id, m.to_email, m.subject, m.body, b.name, m.appointment_id, m.template_trigger, b.phone, b.mailing_address`;
   for (const r of rows) {
     try {
       const details = r.appointment_id && r.template_trigger ? await emailDetails(r.appointment_id, r.template_trigger) : null;
-      await sendEmail({ to: r.to_email, subject: r.subject, text: r.body, fromName: r.name, details });
+      await sendEmail({ to: r.to_email, subject: r.subject, text: r.body, fromName: r.name, details,
+                        extras: { cta: ctaFor(r.template_trigger, r.body),
+                                  footer: { phone: phoneLabel(r.phone) || null, address: r.mailing_address } } });
       await sql`update messages set status = 'sent', sent_at = now() where id = ${r.id}`;
     } catch (e) {
       await sql`update messages set status = 'failed', error = ${String((e as Error).message).slice(0, 500)} where id = ${r.id}`;

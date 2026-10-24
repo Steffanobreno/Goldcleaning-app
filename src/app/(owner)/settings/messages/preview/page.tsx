@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireStaff } from "@/lib/auth";
 import { sql } from "@/lib/db";
-import { emailHtml, type EmailDetails } from "@/lib/email";
+import { ctaFor, emailHtml, type EmailDetails } from "@/lib/email";
 import { emailDetails, render, type Trigger } from "@/lib/messaging";
 import { phoneLabel } from "@/lib/format";
 import { Notice, Page, PageHeader } from "@/components/ui";
@@ -17,7 +17,8 @@ const TRIGGERS: { trigger: Trigger; label: string }[] = [
   { trigger: "confirmed", label: "Confirmed" },
   { trigger: "cancelled", label: "Cancelled" },
   { trigger: "rebook", label: "Rebook" },
-  { trigger: "review_request", label: "Review" },
+  { trigger: "review_request", label: "Thank you + review" },
+  { trigger: "abandoned_booking", label: "Finish booking" },
 ];
 
 // Shows an email exactly as a client gets it, filled in with the latest visit
@@ -26,7 +27,7 @@ export default async function EmailPreviewPage({ searchParams }: PageProps<"/set
   const staff = await requireStaff();
   const sp = await searchParams;
   const trigger = TRIGGERS.find((t) => t.trigger === sp.trigger)?.trigger ?? "request_received";
-  const [b] = await sql`select name, phone, website_url, review_url, now() + interval '3 days' as sample_at
+  const [b] = await sql`select name, phone, mailing_address, website_url, review_url, now() + interval '3 days' as sample_at
                         from businesses where id = ${staff.businessId}`;
   const [t] = await sql`select body, email_subject from message_templates where business_id = ${staff.businessId} and trigger = ${trigger}`;
   const [latest] = await sql`
@@ -59,9 +60,12 @@ export default async function EmailPreviewPage({ searchParams }: PageProps<"/set
     policy: "Free cancellation up to 48 hours before the visit. After that, a late cancellation fee may apply.",
     calendar: ["booked", "confirmed", "reminder"].includes(trigger) ? { apple: "#", google: "#", ics: "" } : null,
   };
-  const details = latest ? await emailDetails(latest.id, trigger) : ["rebook", "review_request"].includes(trigger) ? null : sample;
+  const finishedSample: EmailDetails = { ...sample, heading: "Your visit is complete", badge: "Thank you!", totalLabel: "Total paid",
+    lines: [...sample.lines, { name: "Tip, thank you!", price: "$20.00" }], total: "$223.00", link: null, policy: null, calendar: null };
+  const details = latest ? await emailDetails(latest.id, trigger)
+    : ["rebook", "abandoned_booking"].includes(trigger) ? null : trigger === "review_request" ? finishedSample : sample;
   // The calendar buttons only go with a booked visit; show them on the preview anyway.
-  if (details && !details.calendar && sample.calendar) details.calendar = sample.calendar;
+  if (details && !details.calendar && sample.calendar && trigger !== "review_request") details.calendar = sample.calendar;
   const text = render(t?.body ?? "", vars);
   const subject = render(t?.email_subject ?? b.name, vars);
 
@@ -81,7 +85,7 @@ export default async function EmailPreviewPage({ searchParams }: PageProps<"/set
           <p><span className="text-muted">From </span>{b.name}</p>
           <p><span className="text-muted">Subject </span><strong>{subject}</strong></p>
         </div>
-        <iframe title="Email preview" srcDoc={emailHtml(text, b.name, details)} className="h-[760px] w-full rounded-[var(--radius-card)] border border-line bg-white" />
+        <iframe title="Email preview" srcDoc={emailHtml(text, b.name, details, { cta: ctaFor(trigger, text), footer: { phone: phoneLabel(b.phone) || null, address: b.mailing_address } })} className="h-[760px] w-full rounded-[var(--radius-card)] border border-line bg-white" />
         <Notice kind="info">
           {latest ? "Filled in with your latest visit. " : "Filled in with a made-up visit. "}
           To change the words, edit the message in Email messages; the card with the date, cleaning and price is added by the app.
