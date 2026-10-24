@@ -43,6 +43,9 @@ export function ClientShell({
               <Phone size={16} /> {phoneLabel}
             </a>
           )}
+          <p>
+            <a href="/login" className="text-xs text-white/60 underline-offset-4 hover:underline">Team login</a>
+          </p>
         </div>
       </footer>
     </>
