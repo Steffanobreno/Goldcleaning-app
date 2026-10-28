@@ -5,6 +5,7 @@ import { getHome } from "@/lib/data/homes";
 import { Card, Page, PageHeader } from "@/components/ui";
 import { archiveHomeAction, saveHomeAction } from "../../../actions";
 import { HomeForm } from "../../../forms";
+import { HomePrice } from "../../../home-price";
 
 export const metadata: Metadata = { title: "Edit home" };
 
@@ -20,6 +21,7 @@ export default async function EditHomePage({ params }: PageProps<"/clients/[id]/
         <Card>
           <HomeForm action={saveHomeAction.bind(null, id, homeId)} initial={home} />
         </Card>
+        <HomePrice businessId={staff.businessId} clientId={id} homeId={homeId} />
         {!home.archived_at && (
           <form action={archiveHomeAction.bind(null, id, homeId)} className="text-center">
             <button type="submit" className="text-sm font-semibold text-muted underline">

@@ -6,7 +6,8 @@ import { insertAppointment } from "@/lib/data/appointment-write";
 import type { DraftDetails } from "@/lib/data/abandoned";
 import { ACCESS_METHODS, type AccessMethod } from "@/lib/home-options";
 import { dayLabel, money, normalizePhone, phoneLabel, timeLabel, ymd } from "@/lib/format";
-import { durationMinutes, FREQUENCIES, FREQUENCY_LABEL, quote, type Catalog, type Frequency, type HomeSize } from "@/lib/pricing";
+import { discountCents, discountLabel, durationMinutes, FREQUENCIES, FREQUENCY_LABEL, quote, totalCents, withDiscounts, type Catalog, type DiscountDef, type Frequency, type HomeSize } from "@/lib/pricing";
+import { findCoupon, recordUse } from "@/lib/data/discounts";
 import { notifyAppointment, notifyOwner, notifyQuote } from "@/lib/messaging";
 
 // The public booking page. Nothing here tells a visitor whether a phone number is already a
@@ -108,13 +109,30 @@ export type BookingRequest = {
   start: string; // ISO time picked from the list
   address: { line: string; apt: string; city: string; zip: string };
   access: { method: string; code: string; parking: string; pets: string; notes: string };
-  shownTotalCents: number; // the total the client saw; a different one means the prices changed
+  shownTotalCents: number; // the total the client saw (with the coupon taken off); a different one means the prices changed
+  couponCode?: string; // a promo code the client typed
   website: string; // honeypot: people never see this field
 };
 
 export type BookingResult =
   | { ok: true; when: string }
   | { error: string; newTotalCents?: number; catalog?: Catalog; taken?: boolean };
+
+export type CouponResult = { ok: true; name: string; label: string; savingCents: number } | { error: string };
+
+/** Checks a promo code for this booking: what it takes off, or why it can't be used. */
+export async function checkCouponAction(input: { code: string; phone: string; choice: Choice }): Promise<CouponResult> {
+  const b = await getPublicBusiness();
+  if (!b || !b.online_booking_enabled) return { error: CLOSED };
+  const catalog = await loadCatalog(b.id, { onlineOnly: true });
+  const q = quote(catalog, input.choice);
+  if ("error" in q) return { error: q.error };
+  const phone = normalizePhone(input.phone);
+  const [known] = phone ? await sql`select id from clients where business_id = ${b.id} and phone = ${phone}` : [];
+  const r = await findCoupon(b.id, String(input.code ?? ""), known?.id ?? null);
+  if ("error" in r) return { error: r.error };
+  return { ok: true, name: r.coupon.name, label: discountLabel(r.coupon), savingCents: discountCents(r.coupon, q.totalCents) };
+}
 
 export async function requestBookingAction(input: BookingRequest): Promise<BookingResult> {
   const b = await getPublicBusiness();
@@ -154,10 +172,21 @@ export async function requestBookingAction(input: BookingRequest): Promise<Booki
   const catalog = await loadCatalog(b.id, { onlineOnly: true });
   const q = quote(catalog, { serviceId: ch.serviceId, frequency: ch.frequency, home: ch.home, extras: Array.isArray(ch.extras) ? ch.extras : [] });
   if ("error" in q) return { error: q.error };
-  if (q.totalCents !== input.shownTotalCents) {
+  // A promo code is worked out again here; a first-time code needs a client with no earlier visit.
+  let coupon: DiscountDef | null = null;
+  const code = String(input.couponCode ?? "").trim();
+  if (code) {
+    const [known] = await sql`select id from clients where business_id = ${b.id} and phone = ${phone}`;
+    const r = await findCoupon(b.id, code, known?.id ?? null);
+    if ("error" in r) return { error: `${r.error} Remove the code or try another one.` };
+    coupon = r.coupon;
+  }
+  const lines = withDiscounts(q.lines, { coupon });
+  const total = totalCents(lines);
+  if (total !== input.shownTotalCents) {
     return {
-      error: `Our prices were just updated. Your new total is ${money(q.totalCents)}. Please check it and press Request booking again.`,
-      newTotalCents: q.totalCents,
+      error: `Our prices were just updated. Your new total is ${money(total)}. Please check it and press Request booking again.`,
+      newTotalCents: total,
       catalog,
     };
   }
@@ -182,6 +211,7 @@ export async function requestBookingAction(input: BookingRequest): Promise<Booki
     appointmentId = await sql.begin(async (tx) => {
       const [known] = await tx`select id, online_booking_blocked from clients where business_id = ${b.id} and phone = ${phone}`;
       if (known?.online_booking_blocked) throw new Blocked();
+      if (coupon && !(await recordUse(tx, coupon.id))) throw new CouponUsedUp();
       let clientId: string;
       if (known) {
         existing = true;
@@ -227,10 +257,11 @@ export async function requestBookingAction(input: BookingRequest): Promise<Booki
         status: "requested",
         source: "online",
         notes: access.notes,
-        lines: q.lines,
+        lines,
       });
     });
   } catch (e) {
+    if (e instanceof CouponUsedUp) return { error: "That code has just been used up. Remove it and try again." };
     if (e instanceof Blocked) return { error: `Please call or text us at ${phoneLabel(b.phone)} to book your next cleaning.` };
     if (isExclusionViolation(e)) return taken;
     throw e;
@@ -246,13 +277,14 @@ export async function requestBookingAction(input: BookingRequest): Promise<Booki
     b.id,
     `New booking request: ${firstName} ${lastName}, ${when}`,
     `${firstName} ${lastName} (${existing ? "existing client" : "new client"}), ${phoneLabel(phone)}, asked for ${q.service.name} ` +
-      `(${FREQUENCY_LABEL[ch.frequency]}) on ${when}, ${money(q.totalCents)}.\nAccept or decline: ${appUrl}/requests`,
+      `(${FREQUENCY_LABEL[ch.frequency]}) on ${when}, ${money(total)}${code ? ` with code ${code.toUpperCase()}` : ""}.\nAccept or decline: ${appUrl}/requests`,
     "/requests",
   );
   return { ok: true, when: `${dayLabel(start, b.timezone)} at ${timeLabel(start, b.timezone)}` };
 }
 
 class Blocked extends Error {}
+class CouponUsedUp extends Error {}
 
 export type QuoteRequest = {
   serviceId: string; // Airbnb Turnover or Office Cleaning

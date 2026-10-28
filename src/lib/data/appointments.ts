@@ -121,7 +121,7 @@ export type AppointmentDetail = {
   frequency: Frequency;
   appointment_home_id: string | null;
   home: ApptHome | null;
-  lines: { id: string; service_id: string | null; kind: "service" | "room" | "extra" | "adjustment"; name: string; qty: number; price_cents: number }[];
+  lines: { id: string; service_id: string | null; discount_id: string | null; kind: "service" | "room" | "extra" | "adjustment" | "rate" | "discount" | "coupon"; name: string; qty: number; price_cents: number }[];
   total_cents: number;
 };
 
@@ -134,7 +134,7 @@ export async function getAppointment(staff: StaffContext, id: string) {
       (select ah.id from appointment_homes ah where ah.appointment_id = a.id order by ah.created_at limit 1) as appointment_home_id,
       ${homeJson} as home, ${totalSql} as total_cents,
       coalesce((select json_agg(json_build_object('id', l.id, 'service_id', l.service_id, 'kind', l.kind, 'name', l.name,
-                                                  'qty', l.qty, 'price_cents', l.price_cents) order by l.created_at)
+                                                  'qty', l.qty, 'price_cents', l.price_cents, 'discount_id', l.discount_id) order by l.created_at)
                 from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
                 where ah.appointment_id = a.id), '[]'::json) as lines,
       json_build_object('id', c.id, 'first_name', c.first_name, 'last_name', c.last_name, 'phone', c.phone, 'email', c.email,

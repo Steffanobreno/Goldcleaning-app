@@ -195,3 +195,61 @@ export function SimpleForm({
     </ActionForm>
   );
 }
+
+export type DiscountValues = {
+  name: string; code: string | null; kind: "percent" | "amount"; value: string; first_time_only: boolean;
+  starts_on: string | null; ends_on: string | null; max_uses: number | null; active: boolean;
+};
+
+/** A discount: how much it takes off, and optionally a coupon code with a first-time rule, dates and a use limit. */
+export function DiscountForm({ action, initial }: { action: Action; initial?: DiscountValues }) {
+  const [state, formAction, pending] = useActionState(action, undefined);
+  const [kind, setKind] = useState(initial?.kind ?? "percent");
+  const [code, setCode] = useState(initial?.code ?? "");
+  return (
+    <ActionForm action={formAction} className="space-y-4">
+      {state?.error && <Notice kind="error">{state.error}</Notice>}
+      <Field label="Name" hint="What you call it, like “First cleaning” or “Loyal client”.">
+        <Input name="name" defaultValue={initial?.name} required maxLength={60} />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Takes off">
+          <Select name="kind" value={kind} onChange={(e) => setKind(e.target.value as "percent" | "amount")}>
+            <option value="percent">A percent (%)</option>
+            <option value="amount">A dollar amount ($)</option>
+          </Select>
+        </Field>
+        <Field label={kind === "percent" ? "Percent" : "Dollars"}>
+          <Input name="value" inputMode="decimal" defaultValue={initial?.value} placeholder={kind === "percent" ? "10" : "25.00"} required />
+        </Field>
+      </div>
+      <Field label="Coupon code (optional)" hint="Clients type it on the booking page. Leave empty for a discount you give yourself, to one visit or to a client's home.">
+        <Input name="code" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="WELCOME10" maxLength={30} autoCapitalize="characters" />
+      </Field>
+      {code.trim() !== "" && (
+        <label className="flex items-center gap-3 text-sm">
+          <input type="checkbox" name="first_time_only" defaultChecked={initial?.first_time_only ?? false} className="h-5 w-5" />
+          First-time clients only (works if they have no earlier cleaning with you)
+        </label>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Starts (optional)">
+          <Input type="date" name="starts_on" defaultValue={initial?.starts_on ?? ""} />
+        </Field>
+        <Field label="Ends (optional)">
+          <Input type="date" name="ends_on" defaultValue={initial?.ends_on ?? ""} />
+        </Field>
+      </div>
+      <Field label="Can be used (optional)" hint="How many times in total. Empty means no limit.">
+        <Input name="max_uses" inputMode="numeric" defaultValue={initial?.max_uses ?? ""} placeholder="No limit" />
+      </Field>
+      <label className="flex items-center gap-3 text-sm">
+        <input type="checkbox" name="active" defaultChecked={initial?.active ?? true} className="h-5 w-5" />
+        On (turn off to stop using it without deleting it)
+      </label>
+      <Button type="submit" className="w-full" disabled={pending}>
+        {pending ? "Saving…" : "Save discount"}
+      </Button>
+    </ActionForm>
+  );
+}

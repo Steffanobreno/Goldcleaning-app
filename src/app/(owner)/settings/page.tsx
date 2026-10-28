@@ -8,6 +8,7 @@ export const metadata: Metadata = { title: "Settings" };
 
 const LINKS = [
   { href: "/settings/services", title: "Price list", text: "Cleanings, prices per frequency and extras" },
+  { href: "/settings/discounts", title: "Discounts", text: "Coupon codes, first-time discounts and discounts for a client or one cleaning" },
   { href: "/settings/hours", title: "Working hours", text: "Days and hours you take appointments" },
   { href: "/settings/team", title: "Team", text: "Cleaning teams, their colors and who does each cleaning" },
   { href: "/settings/business", title: "Business", text: "Name, phone and booking link" },

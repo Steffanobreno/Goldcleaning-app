@@ -21,7 +21,8 @@ export type Rate = { startCents: number; bedroomCents: number; fullBathCents: nu
 export type HomeSize = { bedrooms: number; fullBaths: number; halfBaths: number };
 export type ExtraPick = { serviceId: string; name: string; unitCents: number; qty: number };
 export type PriceLine = {
-  kind: "service" | "room" | "extra";
+  kind: "service" | "room" | "extra" | "adjustment" | "rate" | "discount" | "coupon";
+  discountId?: string | null;
   serviceId: string | null;
   label: string;
   qty: number;
@@ -135,4 +136,55 @@ export const VISITS_PER_MONTH: Record<Frequency, number> = { one_time: 0, weekly
 /** What the recurring clients bring in a month, from each one's current price per cleaning. */
 export function recurringMonthlyCents(clients: { frequency: Frequency; totalCents: number }[]) {
   return Math.round(clients.reduce((sum, c) => sum + c.totalCents * VISITS_PER_MONTH[c.frequency], 0));
+}
+
+// ---------------------------------------------------------------- discounts
+
+export type DiscountDef = { id: string; name: string; kind: "percent" | "amount"; percent: number | null; amountCents: number | null };
+
+/** What the discount takes off a subtotal (never more than the subtotal), in cents. */
+export function discountCents(d: Pick<DiscountDef, "kind" | "percent" | "amountCents">, subtotalCents: number) {
+  const raw = d.kind === "percent" ? Math.round((subtotalCents * (d.percent ?? 0)) / 100) : (d.amountCents ?? 0);
+  return Math.min(Math.max(raw, 0), Math.max(subtotalCents, 0));
+}
+
+export const discountLabel = (d: Pick<DiscountDef, "name" | "kind" | "percent" | "amountCents">) =>
+  `${d.name} (${d.kind === "percent" ? `${Number(d.percent)}% off` : `$${((d.amountCents ?? 0) / 100).toFixed(2)} off`})`;
+
+/** The negative price line for a discount. `kind` "discount" repeats with a series; "coupon" is for one visit. */
+export function discountLine(d: DiscountDef, subtotalCents: number, kind: "discount" | "coupon"): PriceLine {
+  const cents = -discountCents(d, subtotalCents);
+  return { kind, discountId: d.id, serviceId: null, label: discountLabel(d), qty: 1, unitCents: cents, amountCents: cents };
+}
+
+/** A home's standing adjustment (+ or −) as a price line, or null when there is none. */
+export function adjustmentLine(cents: number, note: string | null): PriceLine | null {
+  if (!cents) return null;
+  return { kind: "rate", serviceId: null, label: note?.trim() || (cents < 0 ? "Regular client rate" : "Price adjustment"), qty: 1, unitCents: cents, amountCents: cents };
+}
+
+/**
+ * Adds a home's standing adjustment, its standing discounts and an optional coupon / one-off
+ * discount to the cleaning's price lines. Percent discounts are taken off the cleaning price
+ * (service, rooms and extras), not off each other, and the total never goes below zero.
+ */
+export function withDiscounts(
+  lines: PriceLine[],
+  opts: { adjustCents?: number; adjustNote?: string | null; standing?: DiscountDef[]; coupon?: DiscountDef | null },
+): PriceLine[] {
+  const base = totalCents(lines.filter((l) => l.kind === "service" || l.kind === "room" || l.kind === "extra"));
+  const out = [...lines];
+  let running = totalCents(out);
+  const add = (l: PriceLine | null) => {
+    if (!l) return;
+    // A discount can't push the total below zero.
+    const amount = l.amountCents < 0 ? Math.max(l.amountCents, -running) : l.amountCents;
+    if (amount === 0) return;
+    out.push({ ...l, unitCents: amount, amountCents: amount });
+    running += amount;
+  };
+  add(adjustmentLine(opts.adjustCents ?? 0, opts.adjustNote ?? null));
+  for (const d of opts.standing ?? []) add(discountLine(d, base, "discount"));
+  if (opts.coupon) add(discountLine(opts.coupon, base, "coupon"));
+  return out;
 }

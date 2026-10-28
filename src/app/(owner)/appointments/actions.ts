@@ -7,7 +7,8 @@ import { addDaysYmd, hm, isYmd, timeLabel, todayYmd, weekdayOf, ymd, zonedToUtc 
 import { workingHoursFor } from "@/lib/data/appointments";
 import { insertAppointment } from "@/lib/data/appointment-write";
 import { loadCatalog } from "@/lib/data/catalog";
-import { agreedQuote, FREQUENCIES, quote, type Frequency, type HomeSize, type PriceLine } from "@/lib/pricing";
+import { agreedQuote, FREQUENCIES, quote, withDiscounts, type Frequency, type HomeSize, type PriceLine } from "@/lib/pricing";
+import { activeDiscounts, homeStanding, recordUse } from "@/lib/data/discounts";
 import { recalcInvoice } from "@/lib/data/invoices";
 import { notifyAppointment } from "@/lib/messaging";
 import { NEXT_STATUS } from "@/lib/appointment-status";
@@ -82,7 +83,13 @@ export async function createAppointmentAction(clientId: string, _: FormState, fo
 
   const q = await priceForm(staff.businessId, form, { bedrooms: home.bedrooms, fullBaths: home.full_baths, halfBaths: home.half_baths }, frequency);
   if ("error" in q) return { error: q.error };
-  const lines: (PriceLine | (Omit<PriceLine, "kind"> & { kind: "adjustment" }))[] = [...q.lines];
+  // The home's standing price (adjustment and discounts), then a discount for this visit only.
+  const standing = q.service.pricing === "quote" ? null : await homeStanding(homeId);
+  const chosen = String(form.get("discount") ?? "");
+  const coupon = chosen ? (await activeDiscounts(staff.businessId)).find((d) => d.id === chosen) ?? null : null;
+  const lines: PriceLine[] = withDiscounts(q.lines, {
+    adjustCents: standing?.adjustCents, adjustNote: standing?.adjustNote, standing: standing?.discounts, coupon,
+  });
   const adjust = String(form.get("adjustment") ?? "").replace(/[$,\s]/g, "");
   if (adjust !== "") {
     const cents = Math.round(Number(adjust) * 100);
@@ -103,8 +110,9 @@ export async function createAppointmentAction(clientId: string, _: FormState, fo
 
   let id: string;
   try {
-    id = await sql.begin((tx) =>
-      insertAppointment(tx, {
+    id = await sql.begin(async (tx) => {
+      if (coupon) await recordUse(tx, coupon.id);
+      return insertAppointment(tx, {
         businessId: staff.businessId,
         clientId,
         staffId: staff.staffId,
@@ -116,9 +124,9 @@ export async function createAppointmentAction(clientId: string, _: FormState, fo
         status: "unconfirmed",
         source: "manual",
         notes,
-        lines: lines as PriceLine[],
-      }),
-    );
+        lines,
+      });
+    });
   } catch (e) {
     if (isExclusionViolation(e)) return { error: "You already have an appointment at that time. Pick another time." };
     throw e;
@@ -226,7 +234,10 @@ async function openInvoice(staff: StaffContext, appointmentId: string) {
     await tx`
       insert into invoice_items (invoice_id, kind, description, amount_cents)
       select ${inv.id},
-             case l.kind when 'extra' then 'addon' when 'adjustment' then (case when l.price_cents < 0 then 'discount' else 'fee' end)
+             case l.kind when 'extra' then 'addon'
+                         when 'adjustment' then (case when l.price_cents < 0 then 'discount' else 'fee' end)
+                         when 'rate' then (case when l.price_cents < 0 then 'discount' else 'fee' end)
+                         when 'discount' then 'discount' when 'coupon' then 'discount'
                          else 'service' end,
              l.name || case when l.qty > 1 then ' × ' || l.qty else '' end, l.price_cents
       from appointment_homes ah
@@ -362,7 +373,7 @@ export async function reopenInvoiceAction(appointmentId: string) {
 export async function saveLinesAction(appointmentId: string, _: FormState, form: FormData): Promise<FormState> {
   const staff = await requireStaff();
   const [appt] = await sql`
-    select a.id, a.start_at, a.staff_id, ah.id as appointment_home_id, h.bedrooms, h.full_baths, h.half_baths
+    select a.id, a.start_at, a.staff_id, ah.id as appointment_home_id, h.id as home_id, h.bedrooms, h.full_baths, h.half_baths
     from appointments a join appointment_homes ah on ah.appointment_id = a.id join homes h on h.id = ah.home_id
     where a.id = ${appointmentId} and a.business_id = ${staff.businessId}
     order by ah.created_at limit 1`;
@@ -376,17 +387,24 @@ export async function saveLinesAction(appointmentId: string, _: FormState, form:
   const adjust = String(form.get("adjustment") ?? "").replace(/[$,\s]/g, "");
   const adjustCents = adjust === "" ? 0 : Math.round(Number(adjust) * 100);
   if (!Number.isFinite(adjustCents) || Math.abs(adjustCents) > 1_000_000) return { error: "Check the price adjustment." };
+  // The home's standing price is applied again, and so is the visit's discount (changed or removed on the form).
+  const standing = q.service.pricing === "quote" ? null : await homeStanding(appt.home_id);
+  const chosen = String(form.get("discount") ?? "");
+  const [oldCoupon] = await sql`select discount_id from appointment_lines where appointment_home_id = ${appt.appointment_home_id} and kind = 'coupon' limit 1`;
+  const coupon = chosen ? (await activeDiscounts(staff.businessId)).find((d) => d.id === chosen) ?? null : null;
+  const lines = withDiscounts(q.lines, { adjustCents: standing?.adjustCents, adjustNote: standing?.adjustNote, standing: standing?.discounts, coupon });
   const typed = Number(form.get("duration"));
   const durationMin = Number.isInteger(typed) && typed >= 30 && typed <= 720 ? typed : q.durationMin;
   const endAt = new Date(appt.start_at.getTime() + durationMin * 60_000);
   try {
     await sql.begin(async (tx) => {
       await tx`delete from appointment_lines where appointment_home_id = ${appt.appointment_home_id}`;
-      for (const l of q.lines) {
-        await tx`insert into appointment_lines (appointment_home_id, service_id, kind, name, qty, price_cents, duration_min)
+      for (const l of lines) {
+        await tx`insert into appointment_lines (appointment_home_id, service_id, kind, name, qty, price_cents, duration_min, discount_id)
                  values (${appt.appointment_home_id}, ${l.serviceId}, ${l.kind}, ${l.label}, ${l.qty}, ${l.amountCents},
-                         ${l.kind === "service" ? durationMin : 0})`;
+                         ${l.kind === "service" ? durationMin : 0}, ${l.discountId ?? null})`;
       }
+      if (coupon && coupon.id !== oldCoupon?.discount_id) await recordUse(tx, coupon.id);
       if (adjustCents !== 0) {
         await tx`insert into appointment_lines (appointment_home_id, service_id, kind, name, qty, price_cents, duration_min)
                  values (${appt.appointment_home_id}, null, 'adjustment', ${adjustCents < 0 ? "Discount" : "Adjustment"}, 1, ${adjustCents}, 0)`;

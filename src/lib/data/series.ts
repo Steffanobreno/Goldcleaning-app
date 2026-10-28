@@ -4,7 +4,7 @@ import { isExclusionViolation, sql } from "../db";
 import { hm, ymd, zonedToUtc } from "../format";
 import { repeatDates, type RepeatRule } from "../repeat";
 
-// Repeating a visit: books copies of it (same time, home and price lines) on every date of the
+// Repeating a visit: books copies of it (same time, home and price lines, except a coupon, which is for the first visit only) on every date of the
 // rule. Changing the rule replaces the later copies that are still just booked; visits the
 // client confirmed, checked in or paid are left alone. A date that is taken is skipped and
 // reported, so the owner can book that one at another time.
@@ -66,11 +66,11 @@ export async function bookSeries(
   const reasonAt = new Map(busy.map((b) => [b.i - 1, b.visit ?? b.block]));
 
   const homes = await sql<{ home_id: string; lines: { service_id: string | null; kind: string; name: string; qty: number;
-                                                   price_cents: number; duration_min: number }[] }[]>`
+                                                   price_cents: number; duration_min: number; discount_id: string | null }[] }[]>`
     select ah.home_id,
       coalesce((select json_agg(json_build_object('service_id', l.service_id, 'kind', l.kind, 'name', l.name, 'qty', l.qty,
-                                                  'price_cents', l.price_cents, 'duration_min', l.duration_min) order by l.created_at, l.id)
-                from appointment_lines l where l.appointment_home_id = ah.id), '[]'::json) as lines
+                                                  'price_cents', l.price_cents, 'duration_min', l.duration_min, 'discount_id', l.discount_id) order by l.created_at, l.id)
+                from appointment_lines l where l.appointment_home_id = ah.id and l.kind <> 'coupon'), '[]'::json) as lines
     from appointment_homes ah where ah.appointment_id = ${a.id}`;
 
   const skipped: { date: string; reason: string }[] = [];
@@ -99,8 +99,8 @@ export async function bookSeries(
           for (const h of homes) {
             const [ah] = await sp`insert into appointment_homes (appointment_id, home_id) values (${copy.id}, ${h.home_id}) returning id`;
             for (const l of h.lines) {
-              await sp`insert into appointment_lines (appointment_home_id, service_id, kind, name, qty, price_cents, duration_min)
-                       values (${ah.id}, ${l.service_id}, ${l.kind}, ${l.name}, ${l.qty}, ${l.price_cents}, ${l.duration_min})`;
+              await sp`insert into appointment_lines (appointment_home_id, service_id, kind, name, qty, price_cents, duration_min, discount_id)
+                       values (${ah.id}, ${l.service_id}, ${l.kind}, ${l.name}, ${l.qty}, ${l.price_cents}, ${l.duration_min}, ${l.discount_id})`;
             }
           }
         });

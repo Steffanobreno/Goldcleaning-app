@@ -265,3 +265,61 @@ export async function sendTestEmailAction(): Promise<FormState & { sentTo?: stri
   return { saved: true, sentTo: to };
 }
 
+
+// ---------------------------------------------------------------- discounts
+
+/** Creates or changes a discount: a percent or a dollar amount, with an optional coupon code. */
+export async function saveDiscountAction(discountId: string | null, _: FormState, form: FormData): Promise<FormState> {
+  const staff = await requireStaff();
+  const name = String(form.get("name") ?? "").trim().slice(0, 60);
+  const kind = form.get("kind") === "amount" ? "amount" : "percent";
+  const value = Number(String(form.get("value") ?? "").replace(/[$,%\s]/g, ""));
+  const code = String(form.get("code") ?? "").trim().toUpperCase().replace(/\s+/g, "");
+  const dateOrNull = (k: string) => {
+    const v = String(form.get(k) ?? "");
+    return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  };
+  const starts = dateOrNull("starts_on");
+  const ends = dateOrNull("ends_on");
+  const maxRaw = String(form.get("max_uses") ?? "").trim();
+  const maxUses = maxRaw === "" ? null : Number(maxRaw);
+  if (!name) return { error: "Give the discount a name." };
+  if (!Number.isFinite(value) || value <= 0) return { error: "Enter how much it takes off." };
+  if (kind === "percent" && value > 100) return { error: "A percent can't be more than 100." };
+  if (kind === "amount" && value > 10_000) return { error: "That amount looks too big." };
+  if (code && !/^[A-Z0-9_-]{3,30}$/.test(code)) return { error: "A code is 3 to 30 letters, numbers, - or _ (no spaces)." };
+  if (maxUses !== null && (!Number.isInteger(maxUses) || maxUses < 1)) return { error: "How many times it can be used must be a whole number, or empty." };
+  if (starts && ends && ends < starts) return { error: "The end date is before the start date." };
+  const v = {
+    name,
+    code: code || null,
+    kind,
+    percent: kind === "percent" ? value : null,
+    amount_cents: kind === "amount" ? Math.round(value * 100) : null,
+    first_time_only: !!code && form.get("first_time_only") === "on",
+    starts_on: starts,
+    ends_on: ends,
+    max_uses: maxUses,
+    active: form.get("active") === "on",
+  };
+  try {
+    if (discountId) {
+      await sql`update discounts set ${sql(v)} where id = ${discountId} and business_id = ${staff.businessId}`;
+    } else {
+      await sql`insert into discounts ${sql({ ...v, business_id: staff.businessId })}`;
+    }
+  } catch (e) {
+    if (isUniqueViolation(e)) return { error: "Another discount already uses that code." };
+    throw e;
+  }
+  revalidatePath("/settings/discounts");
+  redirect("/settings/discounts");
+}
+
+/** Deletes a discount. Visits that used it keep the price they were booked at. */
+export async function deleteDiscountAction(discountId: string) {
+  const staff = await requireStaff();
+  await sql`delete from discounts where id = ${discountId} and business_id = ${staff.businessId}`;
+  revalidatePath("/settings/discounts");
+  redirect("/settings/discounts");
+}

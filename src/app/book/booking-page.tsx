@@ -8,7 +8,7 @@ import { MonthCalendar } from "./month-calendar";
 import { ExtrasGrid } from "./extras-grid";
 import { PriceSummary } from "./price-summary";
 import { QuoteForm } from "./quote-form";
-import { requestBookingAction, saveDraftAction, slotsAction, type Contact } from "./actions";
+import { checkCouponAction, requestBookingAction, saveDraftAction, slotsAction, type Contact } from "./actions";
 
 // The Clover-style booking page: one scrolling page, in order: service, frequency, home,
 // extras, contact, day and time, address, access, review. The price bar at the bottom follows
@@ -51,6 +51,9 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
   const [address, setAddress] = useState({ line: "", apt: "", city: "", zip: "" });
   const [access, setAccess] = useState({ method: "", code: "", parking: "", pets: "", notes: "" });
   const [website, setWebsite] = useState(""); // honeypot
+  const [promo, setPromo] = useState("");
+  const [applied, setCoupon] = useState<{ code: string; label: string; savingCents: number; atSubtotal: number } | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -61,7 +64,13 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
   const choice = { serviceId, frequency: freq, home, extras };
   const q = !isQuote && service ? quote(catalog, choice) : null;
   const priced = q && !("error" in q) ? q : null;
-  const total = priced ? totalCents(priced.lines) : 0;
+  const subtotal = priced ? totalCents(priced.lines) : 0;
+  // A promo code takes its amount off; the server works it out again.
+  // A percent coupon depends on the price, so a change to the home or extras asks for the code again.
+  const coupon = applied && applied.atSubtotal === subtotal ? applied : null;
+  const saving = coupon ? Math.min(coupon.savingCents, subtotal) : 0;
+  const total = subtotal - saving;
+  const shownLines = priced ? (coupon && saving ? [...priced.lines, { kind: "coupon" as const, serviceId: null, label: coupon.label, qty: 1, unitCents: -saving, amountCents: -saving }] : priced.lines) : [];
   const homeLabel = `${home.bedrooms === 0 ? "Studio" : `${home.bedrooms} bd`} / ${home.fullBaths} ba${home.halfBaths ? ` / ${home.halfBaths} half` : ""}`;
   const title = service ? `${service.name.replace(/ Clean(ing)?$/, "")} · ${FREQUENCY_LABEL[freq]} · ${homeLabel}` : "";
 
@@ -95,7 +104,7 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
   function submit() {
     setError(null);
     startTransition(async () => {
-      const r = await requestBookingAction({ contact, choice, start: start!, address, access, shownTotalCents: total, website });
+      const r = await requestBookingAction({ contact, choice, start: start!, address, access, shownTotalCents: total, couponCode: coupon?.code, website });
       if ("ok" in r) {
         setDone(r.when);
         top.current?.scrollIntoView({ behavior: "smooth" });
@@ -279,7 +288,29 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
                       <p className="font-semibold">{title}</p>
                       {day && <p>{day.label} · {day.times.find((t) => t.value === start)?.slotLabel} · {day.times.find((t) => t.value === start)?.label}</p>}
                       {address.line && <p>{[address.line, address.apt, address.city, address.zip].filter(Boolean).join(", ")}</p>}
+                      {coupon && saving > 0 && <p className="text-success">{coupon.label}: −{money(saving)}</p>}
                       <p className="pt-1 text-base font-bold">Total {money(total)}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium" htmlFor="promo">Promo code (optional)</label>
+                      <div className="flex gap-2">
+                        <input id="promo" className={field} placeholder="Enter code" autoCapitalize="characters" autoComplete="off"
+                          value={promo} onChange={(e) => { setPromo(e.target.value.toUpperCase()); setPromoError(null); }} disabled={!!coupon} />
+                        {coupon ? (
+                          <button type="button" className="shrink-0 rounded-full border border-line px-5 font-semibold"
+                            onClick={() => { setCoupon(null); setPromo(""); }}>Remove</button>
+                        ) : (
+                          <button type="button" className="shrink-0 rounded-full border border-navy px-5 font-semibold text-navy disabled:opacity-40"
+                            disabled={!promo.trim() || pending}
+                            onClick={() => startTransition(async () => {
+                              const r = await checkCouponAction({ code: promo, phone: contact.phone, choice });
+                              if ("error" in r) { setPromoError(r.error); return; }
+                              setCoupon({ code: promo.trim(), label: r.label, savingCents: r.savingCents, atSubtotal: subtotal });
+                              setPromoError(null);
+                            })}>Apply</button>
+                        )}
+                      </div>
+                      {promoError && <p role="alert" className="text-sm text-danger">{promoError}</p>}
                     </div>
                     {error && <p role="alert" className="rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">{error}</p>}
                     <button type="button" disabled={!ready || pending} onClick={submit}
@@ -293,7 +324,7 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
             </>
           )}
 
-          {priced && <PriceSummary title={title} lines={priced.lines} totalCents={total} />}
+          {priced && <PriceSummary title={title} lines={shownLines} totalCents={total} />}
         </>
       )}
     </div>

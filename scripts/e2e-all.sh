@@ -19,4 +19,4 @@ run() {
 run slice
 psql -q -h localhost -p "$PGPORT" -U postgres goldcleaning -f tests/e2e/marketing-seed.sql
 # fixes goes last: it locks the login on purpose (8 wrong passwords).
-for t in marketing backup blocks booking abandoned quotes repeat remove-client fixes; do run $t; done
+for t in marketing backup blocks booking abandoned quotes repeat discounts remove-client fixes; do run $t; done

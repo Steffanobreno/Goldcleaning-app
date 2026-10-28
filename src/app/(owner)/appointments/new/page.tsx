@@ -4,6 +4,7 @@ import { requireStaff } from "@/lib/auth";
 import { clientHistory, fullName, getClient, listClients } from "@/lib/data/clients";
 import { listHomes } from "@/lib/data/homes";
 import { loadCatalog } from "@/lib/data/catalog";
+import { activeDiscounts, homeStanding } from "@/lib/data/discounts";
 import { sql } from "@/lib/db";
 import { dayLabel, isYmd, phoneLabel, timeLabel, todayYmd, zonedToUtc } from "@/lib/format";
 import { ButtonLink, Empty, Input, Page, PageHeader } from "@/components/ui";
@@ -67,14 +68,21 @@ export default async function NewAppointmentPage({ searchParams }: PageProps<"/a
   }
 
   // Step 2: home, service, extras and time.
-  const [homes, catalog, history, slots] = await Promise.all([
+  const [homes, catalog, history, slots, discounts] = await Promise.all([
     listHomes(staff, client.id),
     loadCatalog(staff.businessId),
     clientHistory(staff, client.id),
     sql<{ time: string; label: string }[]>`
       select distinct to_char(start_time, 'HH24:MI') as time, label from booking_slots
       where business_id = ${staff.businessId} order by time`,
+    activeDiscounts(staff.businessId),
   ]);
+  const standing = Object.fromEntries(
+    await Promise.all(homes.map(async (h) => {
+      const s = await homeStanding(h.id);
+      return [h.id, { adjustCents: s.adjustCents, note: s.adjustNote, discounts: s.discounts }] as const;
+    })),
+  );
   const homeParam = typeof sp.home === "string" ? sp.home : undefined;
   const nearby = await nearbyDays(staff, homes.find((h) => h.id === homeParam)?.zip ?? homes[0]?.zip ?? client.zip);
   const count = (status: string) => history.filter((a) => a.status === status).length;
@@ -134,6 +142,8 @@ export default async function NewAppointmentPage({ searchParams }: PageProps<"/a
             defaultDate={date}
             defaultTime={time}
             slotTimes={slots}
+            standing={standing}
+            discounts={discounts}
           />
         )}
       </Page>

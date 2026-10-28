@@ -4,7 +4,7 @@ import { useActionState, useState } from "react";
 import { Button, Field, Input, Notice, Select, Textarea } from "@/components/ui";
 import { minutesLabel, money } from "@/lib/format";
 import { homeSizeLabel } from "@/lib/home-options";
-import { agreedQuote, FREQUENCIES, FREQUENCY_LABEL, quote, totalCents, type Catalog, type Frequency } from "@/lib/pricing";
+import { agreedQuote, discountLabel, FREQUENCIES, FREQUENCY_LABEL, quote, totalCents, withDiscounts, type Catalog, type DiscountDef, type Frequency } from "@/lib/pricing";
 import type { FormState } from "./actions";
 
 type Home = { id: string; label: string; bedrooms: number; full_baths: number; half_baths: number; address: string };
@@ -17,7 +17,11 @@ export type EditValues = {
   durationMin: number;
   baseMin: number;
   agreedCents: number | null; // a quote-only service: the price agreed by hand
+  couponId: string | null; // the discount given to this visit only
 };
+
+/** What a home carries: its standing adjustment and discounts, applied to every visit booked for it. */
+export type Standing = { adjustCents: number; note: string | null; discounts: DiscountDef[] };
 
 export function BookingForm({
   action,
@@ -28,6 +32,8 @@ export function BookingForm({
   defaultTime,
   slotTimes,
   edit,
+  standing = {},
+  discounts = [],
 }: {
   action: (state: FormState, form: FormData) => Promise<FormState>;
   homes: Home[];
@@ -37,6 +43,8 @@ export function BookingForm({
   defaultTime: string;
   slotTimes: { time: string; label: string }[]; // quick picks: the online slots
   edit?: EditValues;
+  standing?: Record<string, Standing>;
+  discounts?: DiscountDef[]; // the discounts that can be given to one visit
 }) {
   const [state, formAction, pending] = useActionState(action, undefined);
   // Quote-only services (Airbnb, office) are booked at the price agreed with the client.
@@ -53,6 +61,7 @@ export function BookingForm({
   const [time, setTime] = useState(defaultTime);
   const [extraMin, setExtraMin] = useState(edit ? edit.durationMin - edit.baseMin : 0); // the owner's change to the estimate
   const [adjust, setAdjust] = useState(edit?.adjustCents ? (edit.adjustCents / 100).toFixed(2) : "");
+  const [couponId, setCouponId] = useState(edit?.couponId ?? "");
 
   const home = homes.find((h) => h.id === homeId);
   const size = home ? { bedrooms: home.bedrooms, fullBaths: home.full_baths, halfBaths: home.half_baths } : null;
@@ -68,7 +77,11 @@ export function BookingForm({
         });
   const priced = q && !("error" in q) ? q : null;
   const adjustCents = Math.round((Number(adjust.replace(/[$,\s]/g, "")) || 0) * 100);
-  const total = (priced ? totalCents(priced.lines) : 0) + adjustCents;
+  // The home's standing price and the visit's discount are added to the cleaning's lines (not for an agreed price).
+  const stand = !agreed ? standing[homeId] : undefined;
+  const coupon = discounts.find((d) => d.id === couponId) ?? null;
+  const lines = priced ? withDiscounts(priced.lines, { adjustCents: stand?.adjustCents, adjustNote: stand?.note, standing: stand?.discounts, coupon }) : [];
+  const total = totalCents(lines) + adjustCents;
   const visitMin = Math.max((priced?.durationMin ?? 0) + extraMin, 30);
 
   return (
@@ -193,7 +206,17 @@ export function BookingForm({
         </div>
       </div>
 
-      <Field label="Price adjustment ($, optional)" hint="A negative amount is a discount, like -20.">
+      {discounts.length > 0 && (
+        <Field label="Discount for this visit only (optional)" hint="Set up discounts in Settings → Discounts.">
+          <Select name="discount" value={couponId} onChange={(e) => setCouponId(e.target.value)}>
+            <option value="">No discount</option>
+            {discounts.map((d) => (
+              <option key={d.id} value={d.id}>{discountLabel(d)}</option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      <Field label="Price adjustment ($, optional)" hint="Only for this visit. A negative amount is a discount, like -20. For a home that always pays a different price, set it on the home.">
         <Input name="adjustment" inputMode="decimal" value={adjust} onChange={(e) => setAdjust(e.target.value)} placeholder="0.00" />
       </Field>
       {!edit && (
@@ -203,7 +226,7 @@ export function BookingForm({
       )}
 
       <div className="card divide-y divide-line">
-        {priced?.lines.map((l, i) => (
+        {lines.map((l, i) => (
           <div key={i} className="flex justify-between px-4 py-2 text-sm">
             <span>{l.label}{l.qty > 1 ? ` × ${l.qty}` : ""}</span>
             <span className="tabular-nums">{money(l.amountCents)}</span>

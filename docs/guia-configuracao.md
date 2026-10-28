@@ -75,6 +75,22 @@ O arquivo `.github/workflows/messages.yml` já chama o app de hora em hora (no m
 - Airbnb e escritório não têm preço online: chegam em **Requests → Quotes**. Depois de combinar
   o preço, **Make client and book** marca a limpeza com o preço combinado.
 
+## 5b. Preço de uma casa e descontos
+
+- **Preço de uma casa (cliente antigo, preço diferente):** Clients → o cliente → a casa → **Price for this home**.
+  Em *Adjustment per visit* escreva `-20` para baixar $20 em cada limpeza, ou `15` para subir $15. Vale para
+  todas as limpezas novas dessa casa, inclusive as que repetem. As já marcadas ficam como estão.
+- **Descontos:** Settings → **Discounts**. Um desconto tem nome e vale uma porcentagem ou um valor em dólar.
+  - **Com código** (ex.: `WELCOME10`): é um cupom que o cliente digita na página de agendamento. Marque
+    *First-time clients only* para valer só para quem nunca fez limpeza com vocês. Dá para limitar por datas e
+    por quantidade de usos.
+  - **Sem código:** é um desconto seu. Dá para dar a **uma limpeza** (na hora de marcar ou em *Edit price*) ou a
+    **uma casa**, para valer sempre (na mesma tela *Price for this home*).
+- O cupom vale só na primeira limpeza de uma série que repete. O preço da casa e os descontos fixos da casa
+  valem em todas.
+- Pedido online de cliente antigo vem com o preço da tabela. Se a casa tem preço próprio, o pedido avisa:
+  toque em **Edit price** e **Save** para aplicar.
+
 ## 6. Google Calendar (atualiza a cada 15 minutos)
 
 Uma vez só, num computador, com a conta Google da empresa:
@@ -84,7 +100,7 @@ Uma vez só, num computador, com a conta Google da empresa:
 3. **Save** → escolha **setup** → **Run**.
 4. O Google pede permissão: **Review permissions** → a conta da empresa → **Advanced** →
    **Go to Untitled project** → **Allow** (é um script de vocês, por isso o aviso).
-5. Aparece a agenda **Gold Cleaning** no Google Calendar, com todas as limpezas. Nova, mudada ou
+5. Aparece a agenda **Peninsula Gold Cleaning** no Google Calendar, com todas as limpezas. Nova, mudada ou
    cancelada aparece em até 15 minutos, das 6h às 21h.
 
 ## 7. Página de agendamento no site

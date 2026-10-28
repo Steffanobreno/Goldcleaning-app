@@ -198,3 +198,32 @@ export async function deleteClientAction(clientId: string) {
   revalidatePath("/reports");
   redirect("/clients?removed=1");
 }
+
+/**
+ * A home's standing price: an adjustment in dollars (+ or −) added to every visit booked for it,
+ * and the discounts that always apply to it. Visits already booked keep their prices.
+ */
+export async function saveHomePriceAction(
+  clientId: string, homeId: string, _: { error?: string; saved?: boolean } | undefined, form: FormData,
+): Promise<{ error?: string; saved?: boolean }> {
+  const staff = await requireStaff();
+  const [home] = await sql`
+    select h.id from homes h join clients c on c.id = h.client_id
+    where h.id = ${homeId} and h.client_id = ${clientId} and c.business_id = ${staff.businessId}`;
+  if (!home) return { error: "Home not found." };
+  const typed = String(form.get("adjustment") ?? "").replace(/[$,\s]/g, "");
+  const cents = typed === "" ? 0 : Math.round(Number(typed) * 100);
+  if (!Number.isFinite(cents) || Math.abs(cents) > 1_000_000) return { error: "Enter the adjustment like -20 or 15.50." };
+  const note = String(form.get("note") ?? "").trim().slice(0, 80) || null;
+  const picked = [...form.keys()].filter((k) => k.startsWith("d:")).map((k) => k.slice(2));
+  const valid = picked.length
+    ? await sql<{ id: string }[]>`select id from discounts where business_id = ${staff.businessId} and id = any(${picked}::uuid[])`
+    : [];
+  await sql.begin(async (tx) => {
+    await tx`update homes set price_adjust_cents = ${cents}, price_adjust_note = ${cents ? note : null} where id = ${homeId}`;
+    await tx`delete from home_discounts where home_id = ${homeId}`;
+    for (const d of valid) await tx`insert into home_discounts (home_id, discount_id) values (${homeId}, ${d.id})`;
+  });
+  revalidatePath(`/clients/${clientId}`);
+  return { saved: true };
+}

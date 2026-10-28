@@ -37,9 +37,9 @@ export async function insertAppointment(tx: TransactionSql, a: NewAppointment) {
     returning id`;
   const [ah] = await tx`insert into appointment_homes (appointment_id, home_id) values (${appt.id}, ${a.homeId}) returning id`;
   for (const l of a.lines) {
-    await tx`insert into appointment_lines (appointment_home_id, service_id, kind, name, qty, price_cents, duration_min)
+    await tx`insert into appointment_lines (appointment_home_id, service_id, kind, name, qty, price_cents, duration_min, discount_id)
              values (${ah.id}, ${l.serviceId}, ${l.kind}, ${l.label}, ${l.qty}, ${l.amountCents},
-                     ${l.kind === "service" ? a.durationMin : 0})`;
+                     ${l.kind === "service" ? a.durationMin : 0}, ${l.discountId ?? null})`;
   }
   return appt.id as string;
 }

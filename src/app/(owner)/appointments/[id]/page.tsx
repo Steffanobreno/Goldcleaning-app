@@ -14,7 +14,8 @@ import { ruleLabel, type RepeatRule } from "@/lib/repeat";
 import { assignGroomerAction, setStatusAction, rescheduleAction, startCheckoutAction, updateNotesAction } from "../actions";
 import { listGroomers } from "@/lib/data/staff";
 import { accessLabel, homeSizeLabel } from "@/lib/home-options";
-import { FREQUENCY_LABEL } from "@/lib/pricing";
+import { discountLabel, FREQUENCY_LABEL } from "@/lib/pricing";
+import { homeStanding } from "@/lib/data/discounts";
 import { RescheduleForm } from "../reschedule-form";
 import { AddressLink, PhoneLink } from "@/components/contact-sheet";
 
@@ -74,6 +75,9 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
   const minutes = Math.round((appt.end_at.getTime() - appt.start_at.getTime()) / 60000);
   const total = appt.total_cents;
   const home = appt.home;
+  // An online request is priced from the price list; a home with its own price needs Edit price to apply it.
+  const standing = appt.status === "requested" && home ? await homeStanding(home.id) : null;
+  const hasStanding = !!standing && (standing.adjustCents !== 0 || standing.discounts.length > 0);
   const primary = PRIMARY[appt.status];
   const paid = checkout?.invoice.status === "closed";
   const closed = ["cancelled", "no_show", "declined"].includes(appt.status);
@@ -101,6 +105,12 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
           </Notice>
         )}
         {sp.conflict === "1" && <Notice kind="error">Another appointment already uses that time.</Notice>}
+        {hasStanding && standing && (
+          <Notice kind="info">
+            This home has its own price ({[standing.adjustCents ? `${standing.adjustCents < 0 ? "−" : "+"}${money(Math.abs(standing.adjustCents))} per visit` : null, ...standing.discounts.map(discountLabel)].filter(Boolean).join(", ")}).
+            The request was priced from the price list: tap <strong>Edit price</strong> and Save to apply it.
+          </Notice>
+        )}
         {appt.reschedule_requested_at && (
           <div className="rounded-2xl border border-warn bg-warn-soft px-4 py-3 text-warn">
             <p className="font-bold">The client asked for a different time</p>
