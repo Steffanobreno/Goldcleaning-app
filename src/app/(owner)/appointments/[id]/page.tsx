@@ -18,6 +18,7 @@ import { discountLabel, FREQUENCY_LABEL } from "@/lib/pricing";
 import { homeStanding } from "@/lib/data/discounts";
 import { RescheduleForm } from "../reschedule-form";
 import { ConfirmButton } from "@/components/confirm-button";
+import { VisitPhotos } from "./visit-photos";
 import { AddressLink, PhoneLink } from "@/components/contact-sheet";
 
 export const metadata: Metadata = { title: "Appointment" };
@@ -79,6 +80,19 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
   const home = appt.home;
   // An online request is priced from the price list; a home with its own price needs Edit price to apply it.
   const standing = appt.status === "requested" && home ? await homeStanding(home.id) : null;
+  // Photos of this cleaning, and how the last one at this home went (its notes and photos).
+  const [photos, [last]] = await Promise.all([
+    sql<{ id: string; kind: "before" | "after" | "other" }[]>`select id, kind from visit_photos where appointment_id = ${id} order by created_at`,
+    home
+      ? sql<{ id: string; start_at: Date; notes: string | null; photos: number }[]>`
+          select a.id, a.start_at, a.notes, (select count(*)::int from visit_photos p where p.appointment_id = a.id) as photos
+          from appointments a join appointment_homes ah on ah.appointment_id = a.id
+          where ah.home_id = ${home.id} and a.id <> ${id} and a.start_at < ${appt.start_at}
+            and a.status in ('completed', 'in_progress', 'confirmed', 'unconfirmed')
+            and (nullif(trim(coalesce(a.notes, '')), '') is not null or exists (select 1 from visit_photos p where p.appointment_id = a.id))
+          order by a.start_at desc limit 1`
+      : Promise.resolve([] as { id: string; start_at: Date; notes: string | null; photos: number }[]),
+  ]);
   const hasStanding = !!standing && (standing.adjustCents !== 0 || standing.discounts.length > 0);
   const primary = PRIMARY[appt.status];
   const paid = checkout?.invoice.status === "closed";
@@ -296,6 +310,24 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
             <Button type="submit" kind="secondary">Save notes</Button>
           </form>
         </section>
+
+        <section className="space-y-2">
+          <h2 className="section-label">Photos</h2>
+          <div className="card p-4">
+            <VisitPhotos appointmentId={id} photos={photos} />
+          </div>
+        </section>
+
+        {last && (
+          <section className="space-y-2">
+            <h2 className="section-label">Last time at this home</h2>
+            <Link href={`/appointments/${last.id}`} className="card block space-y-1 p-4">
+              <span className="block text-sm font-semibold text-muted">{dayLabel(last.start_at, tz)}</span>
+              {last.notes && <span className="block whitespace-pre-line text-sm">{last.notes}</span>}
+              {last.photos > 0 && <span className="block text-sm font-semibold text-brand">{last.photos} photo{last.photos === 1 ? "" : "s"} · open</span>}
+            </Link>
+          </section>
+        )}
 
         {canMove && (
           <section className="scroll-mt-20 space-y-2" id="reschedule">
