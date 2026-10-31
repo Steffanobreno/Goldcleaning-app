@@ -9,6 +9,9 @@ import { dayLabel, money, normalizePhone, phoneLabel, timeLabel, ymd } from "@/l
 import { discountCents, discountLabel, durationMinutes, FREQUENCIES, FREQUENCY_LABEL, quote, totalCents, withDiscounts, type Catalog, type DiscountDef, type Frequency, type HomeSize } from "@/lib/pricing";
 import { findCoupon, recordUse } from "@/lib/data/discounts";
 import { notifyAppointment, notifyOwner, notifyQuote } from "@/lib/messaging";
+import { bookSeries } from "@/lib/data/series";
+import { seriesForFrequency } from "@/lib/repeat";
+import { addDaysYmd, todayYmd } from "@/lib/format";
 
 // The public booking page. Nothing here tells a visitor whether a phone number is already a
 // client: a known number is matched only when the request is saved, and every request still
@@ -115,7 +118,7 @@ export type BookingRequest = {
 };
 
 export type BookingResult =
-  | { ok: true; when: string }
+  | { ok: true; when: string; accepted?: boolean }
   | { error: string; newTotalCents?: number; catalog?: Catalog; taken?: boolean };
 
 export type CouponResult = { ok: true; name: string; label: string; savingCents: number } | { error: string };
@@ -204,8 +207,11 @@ export async function requestBookingAction(input: BookingRequest): Promise<Booki
     where a.business_id = ${b.id} and a.source = 'online' and c.phone = ${phone} and a.created_at > now() - interval '1 day'`;
   if (recent >= 3) return { error: "You already sent a few requests today. We'll be in touch soon!" };
 
+  // Automation (Settings → Online booking): some requests book themselves.
+  const [{ auto_accept: autoAccept }] = await sql<{ auto_accept: string }[]>`select auto_accept from businesses where id = ${b.id}`;
   const addressLine = apt ? `${line}, ${/^(apt|unit|#|suite)/i.test(apt) ? apt : `Apt ${apt}`}` : line;
   let existing = false;
+  let accepted = false;
   let appointmentId: string;
   try {
     appointmentId = await sql.begin(async (tx) => {
@@ -254,7 +260,7 @@ export async function requestBookingAction(input: BookingRequest): Promise<Booki
         frequency: ch.frequency,
         startAt: start,
         durationMin: q.durationMin,
-        status: "requested",
+        status: (accepted = autoAccept === "all" || (autoAccept === "returning" && existing)) ? "unconfirmed" : "requested",
         source: "online",
         notes: access.notes,
         lines,
@@ -270,17 +276,23 @@ export async function requestBookingAction(input: BookingRequest): Promise<Booki
   // The booking went through: it's no longer an abandoned one.
   await sql`update booking_drafts set completed_at = now()
             where business_id = ${b.id} and phone = ${phone} and completed_at is null`;
-  await notifyAppointment(appointmentId, "request_received");
+  // A recurring booking that books itself also books its next cleanings, like accepting one does.
+  const repeat = accepted ? seriesForFrequency(ch.frequency) : null;
+  if (repeat) {
+    const staffCtx = { staffId: b.staff_id, staffName: "", businessId: b.id, businessName: b.name, businessPhone: b.phone, timezone: b.timezone, bookingSlug: "" };
+    await bookSeries(staffCtx, appointmentId, { freq: repeat.freq, every: repeat.interval, count: null, until: addDaysYmd(todayYmd(b.timezone), b.booking_days_ahead) }, "unconfirmed");
+  }
+  await notifyAppointment(appointmentId, accepted ? "booked" : "request_received");
   const when = `${dayLabel(start, b.timezone)} ${timeLabel(start, b.timezone)}`;
   const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
   await notifyOwner(
     b.id,
-    `New booking request: ${firstName} ${lastName}, ${when}`,
-    `${firstName} ${lastName} (${existing ? "existing client" : "new client"}), ${phoneLabel(phone)}, asked for ${q.service.name} ` +
-      `(${FREQUENCY_LABEL[ch.frequency]}) on ${when}, ${money(total)}${code ? ` with code ${code.toUpperCase()}` : ""}.\nAccept or decline: ${appUrl}/requests`,
-    "/requests",
+    accepted ? `New booking (booked automatically): ${firstName} ${lastName}, ${when}` : `New booking request: ${firstName} ${lastName}, ${when}`,
+    `${firstName} ${lastName} (${existing ? "existing client" : "new client"}), ${phoneLabel(phone)}, ${accepted ? "booked" : "asked for"} ${q.service.name} ` +
+      `(${FREQUENCY_LABEL[ch.frequency]}) on ${when}, ${money(total)}${code ? ` with code ${code.toUpperCase()}` : ""}.\n${accepted ? `See it: ${appUrl}/appointments/${appointmentId}` : `Accept or decline: ${appUrl}/requests`}`,
+    accepted ? `/appointments/${appointmentId}` : "/requests",
   );
-  return { ok: true, when: `${dayLabel(start, b.timezone)} at ${timeLabel(start, b.timezone)}` };
+  return { ok: true, accepted, when: `${dayLabel(start, b.timezone)} at ${timeLabel(start, b.timezone)}` };
 }
 
 class Blocked extends Error {}

@@ -7,6 +7,7 @@ import { sql } from "@/lib/db";
 import { addDaysYmd, dayLabel, dayRangeUtc, hm, isYmd, money, timeLabel, todayYmd, weekdayOf, ymd, zonedToUtc } from "@/lib/format";
 import { ButtonLink, Page, PageHeader, StatusBadge } from "@/components/ui";
 import { DayNav } from "@/components/day-nav";
+import { Swipe } from "@/components/swipe";
 import { SlotButton } from "./slot-button";
 import { YearView } from "./year-view";
 import { dayFill } from "@/lib/calendar-fill";
@@ -50,7 +51,7 @@ const blockTitle = (t: TimeOff) => t.reason || "Blocked";
 const STATUS_BAR: Record<string, string> = {
   requested: "border-l-warn",
   unconfirmed: "border-l-danger",
-  confirmed: "border-l-brand",
+  confirmed: "border-l-success",
   en_route: "border-l-sky",
   in_progress: "border-l-success",
   completed: "border-l-success",
@@ -131,16 +132,19 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
 
         {(view === "day" || view === "agenda") && <WeekStrip date={date} today={today} view={view} q={q} />}
 
-        {view === "day" && <DayTimeline date={date} appts={onDay(date)} blocks={blocksOn(date)} hours={hoursOf(date)} tz={tz} multi={multi} groomer={groomer} />}
-        {view === "week" && <WeekGrid start={monday(date)} today={today} appts={appts} blocksOn={blocksOn} hoursOf={hoursOf} tz={tz} />}
-        {view === "month" && (
-          <MonthGrid start={gridStart} count={gridDays} month={date.slice(0, 7)} today={today} onDay={onDay} blocksOn={blocksOn} working={(d) => !!hoursOf(d)} />
-        )}
-        {view === "year" && (
-          <YearView year={y} today={today} working={(d) => !!hoursOf(d)}
-            fill={dayFill(groomer ? yearRows.filter((a) => a.staff_id === groomer) : yearRows, tz)} />
-        )}
-        {view === "agenda" && <Agenda start={monday(date)} today={today} onDay={onDay} blocksOn={blocksOn} working={(d) => !!hoursOf(d)} tz={tz} />}
+        {/* Every view turns a page with a sideways swipe, like the arrows. */}
+        <Swipe prev={`${base}date=${shift(-1)}`} next={`${base}date=${shift(1)}`}>
+          {view === "day" && <DayTimeline date={date} appts={onDay(date)} blocks={blocksOn(date)} hours={hoursOf(date)} tz={tz} multi={multi} groomer={groomer} />}
+          {view === "week" && <WeekGrid start={monday(date)} today={today} appts={appts} blocksOn={blocksOn} hoursOf={hoursOf} tz={tz} />}
+          {view === "month" && (
+            <MonthGrid start={gridStart} count={gridDays} month={date.slice(0, 7)} today={today} onDay={onDay} blocksOn={blocksOn} working={(d) => !!hoursOf(d)} />
+          )}
+          {view === "year" && (
+            <YearView year={y} today={today} working={(d) => !!hoursOf(d)}
+              fill={dayFill(groomer ? yearRows.filter((a) => a.staff_id === groomer) : yearRows, tz)} />
+          )}
+          {view === "agenda" && <Agenda start={monday(date)} today={today} onDay={onDay} blocksOn={blocksOn} working={(d) => !!hoursOf(d)} tz={tz} />}
+        </Swipe>
       </Page>
     </>
   );

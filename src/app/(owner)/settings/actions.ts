@@ -148,7 +148,7 @@ export async function saveBookingSettingsAction(_: FormState, form: FormData): P
   if (base < 30 || base > 600) return { error: "Cleaning length: 30 to 600 minutes." };
   if (bedrooms < 0 || bedrooms > 7 || extra < 0 || extra > 480) return { error: "Larger homes: 0 to 7 bedrooms, 0 to 480 extra minutes." };
   if (notice < 0 || notice > 336) return { error: "Notice: 0 to 336 hours." };
-  if (ahead < 1 || ahead > 180) return { error: "Clients can book 1 to 180 days ahead." };
+  if (ahead < 1 || ahead > 730) return { error: "Clients can book 1 to 730 days ahead (365 = a whole year)." };
   if (cancelHours < 0 || cancelHours > 168) return { error: "Cancellation window: 0 to 168 hours." };
   if (cities.length === 0) return { error: "List at least one city you serve." };
   await sql`
@@ -179,6 +179,15 @@ export async function saveSlotsAction(_: FormState, form: FormData): Promise<For
     await tx`delete from booking_slots where business_id = ${staff.businessId}`;
     await tx`insert into booking_slots ${tx(rows.map((r) => ({ ...r, business_id: staff.businessId })))}`;
   });
+  revalidatePath("/settings/booking");
+  return { saved: true };
+}
+
+export async function saveAutoAcceptAction(_: FormState, form: FormData): Promise<FormState> {
+  const staff = await requireStaff();
+  const value = String(form.get("auto_accept"));
+  if (!["none", "returning", "all"].includes(value)) return { error: "Pick one." };
+  await sql`update businesses set auto_accept = ${value} where id = ${staff.businessId}`;
   revalidatePath("/settings/booking");
   return { saved: true };
 }

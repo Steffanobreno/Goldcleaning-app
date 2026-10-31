@@ -109,8 +109,9 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
 const STATUS: Record<string, { label: string; className: string }> = {
   requested: { label: "Requested", className: "bg-warn-soft text-warn" },
   waitlist: { label: "Waitlist", className: "bg-bg text-muted" },
-  unconfirmed: { label: "Not confirmed", className: "bg-warn-soft text-warn" },
-  confirmed: { label: "Confirmed", className: "bg-brand-soft text-brand-strong" },
+  // Whether the client confirmed from the reminder; the visit is booked either way.
+  unconfirmed: { label: "Not confirmed", className: "bg-danger-soft text-danger" },
+  confirmed: { label: "Confirmed", className: "bg-success-soft text-success" },
   en_route: { label: "On the way", className: "bg-brand text-on-brand" },
   in_progress: { label: "Checked in", className: "bg-success text-white" },
   completed_unpaid: { label: "Unpaid", className: "bg-danger-soft text-danger" },

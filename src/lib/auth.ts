@@ -65,6 +65,68 @@ export async function login(email: string, password: string) {
   return true;
 }
 
+/** The login email of the logged-in staff member. */
+export async function accountEmail(staffId: string) {
+  const [r] = await sql`select u.email from staff s join users u on u.id = s.user_id where s.id = ${staffId}`;
+  return (r?.email as string | undefined) ?? null;
+}
+
+/** Changes the login email; false when another login already uses it. */
+export async function changeEmail(staffId: string, email: string) {
+  const address = email.trim().toLowerCase();
+  const [taken] = await sql`select 1 from users u where u.email = ${address}
+                            and u.id <> (select user_id from staff where id = ${staffId})`;
+  if (taken) return false;
+  await sql`update users set email = ${address}, updated_at = now()
+            where id = (select user_id from staff where id = ${staffId})`;
+  return true;
+}
+
+/**
+ * Changes the password after checking the current one, and logs out every other device.
+ * Returns false when the current password is wrong.
+ */
+export async function changePassword(staffId: string, current: string, next: string) {
+  const [user] = await sql`select u.id, u.password_hash from staff s join users u on u.id = s.user_id where s.id = ${staffId}`;
+  if (!user || !(await verifyPassword(current, user.password_hash))) return false;
+  await sql`update users set password_hash = ${await hashPassword(next)}, updated_at = now() where id = ${user.id}`;
+  const token = (await cookies()).get(COOKIE)?.value;
+  await sql`delete from sessions where user_id = ${user.id} and token_hash <> ${token ? hashToken(token) : ""}`;
+  return true;
+}
+
+/** Logs out every device except this one. */
+export async function logoutOthers(staffId: string) {
+  const token = (await cookies()).get(COOKIE)?.value;
+  await sql`delete from sessions where user_id = (select user_id from staff where id = ${staffId})
+            and token_hash <> ${token ? hashToken(token) : ""}`;
+}
+
+/** Sets (or, with null, removes) the app lock PIN of a team member. */
+export async function setPin(staffId: string, pin: string | null) {
+  await sql`update staff set pin_hash = ${pin ? await hashPassword(pin) : null}, pin_failures = 0 where id = ${staffId}`;
+}
+
+/**
+ * Checks the app lock PIN. After 5 wrong tries in a row the person is logged out of this
+ * device, so a found phone can't be opened by guessing.
+ */
+export async function checkPin(staffId: string, pin: string): Promise<"ok" | "wrong" | "logged-out"> {
+  const [s] = await sql`select pin_hash, pin_failures from staff where id = ${staffId}`;
+  if (!s?.pin_hash) return "ok";
+  if (await verifyPassword(pin, s.pin_hash)) {
+    await sql`update staff set pin_failures = 0 where id = ${staffId}`;
+    return "ok";
+  }
+  const [r] = await sql`update staff set pin_failures = pin_failures + 1 where id = ${staffId} returning pin_failures`;
+  if (r.pin_failures >= 5) {
+    await sql`update staff set pin_failures = 0 where id = ${staffId}`;
+    await logout();
+    return "logged-out";
+  }
+  return "wrong";
+}
+
 export async function logout() {
   const jar = await cookies();
   const token = jar.get(COOKIE)?.value;

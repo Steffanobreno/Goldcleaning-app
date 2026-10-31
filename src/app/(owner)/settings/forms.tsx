@@ -4,6 +4,7 @@ import { ActionForm } from "@/components/action-form";
 import { Button, Field, Input, Notice, Select, Textarea } from "@/components/ui";
 import { WEEKDAYS } from "@/lib/format";
 import type { FormState } from "./actions";
+import { DateField } from "@/components/date-field";
 
 type Action = (state: FormState, form: FormData) => Promise<FormState>;
 
@@ -234,10 +235,10 @@ export function DiscountForm({ action, initial }: { action: Action; initial?: Di
       )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Starts (optional)">
-          <Input type="date" name="starts_on" defaultValue={initial?.starts_on ?? ""} />
+          <DateField name="starts_on" defaultValue={initial?.starts_on ?? ""} placeholder="No start date" />
         </Field>
         <Field label="Ends (optional)">
-          <Input type="date" name="ends_on" defaultValue={initial?.ends_on ?? ""} />
+          <DateField name="ends_on" defaultValue={initial?.ends_on ?? ""} placeholder="No end date" />
         </Field>
       </div>
       <Field label="Can be used (optional)" hint="How many times in total. Empty means no limit.">

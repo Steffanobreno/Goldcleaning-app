@@ -3,7 +3,8 @@ import Link from "next/link";
 import { requireStaff } from "@/lib/auth";
 import { clientCounts, fullAddress, fullName, listClients } from "@/lib/data/clients";
 import { phoneLabel } from "@/lib/format";
-import { ButtonLink, Empty, Input, Notice, Page, PageHeader } from "@/components/ui";
+import { ButtonLink, Empty, Notice, Page, PageHeader } from "@/components/ui";
+import { ClientFinder } from "@/components/client-finder";
 
 export const metadata: Metadata = { title: "Clients" };
 
@@ -17,11 +18,6 @@ export default async function ClientsPage({ searchParams }: PageProps<"/clients"
     <>
       <PageHeader title="Clients" action={<ButtonLink href="/clients/new">New client</ButtonLink>} />
       <Page>
-        <form role="search">
-          {inactive && <input type="hidden" name="show" value="inactive" />}
-          <label className="sr-only" htmlFor="q">Search clients</label>
-          <Input id="q" name="q" type="search" defaultValue={q} placeholder="Search by name, phone or address" className="rounded-full px-5" />
-        </form>
         <p className="px-1 text-sm text-muted">
           CLIENTS <strong className="text-ink">{counts.clients}</strong> · HOMES <strong className="text-ink">{counts.homes}</strong>
           {q && <> · {clients.length} found</>}
@@ -36,9 +32,10 @@ export default async function ClientsPage({ searchParams }: PageProps<"/clients"
             {q ? "Try part of the name, the phone number, the street or the ZIP." : "Add your first client to start booking."}
           </Empty>
         ) : (
+          <ClientFinder initialQuery={q} placeholder="Search by name, phone or address" form={inactive ? <input type="hidden" name="show" value="inactive" /> : null}>
           <ul className="space-y-2">
             {clients.map((c) => (
-              <li key={c.id}>
+              <li key={c.id} data-letter={c.first_name} data-search={[fullName(c), c.phone, c.home_summary, c.city, fullAddress(c)].filter(Boolean).join(" ")}>
                 <Link href={`/clients/${c.id}`} className="card flex items-center gap-3 px-4 py-3 hover:bg-bg">
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-navy text-sm font-bold text-white">
                     {(c.first_name[0] ?? "") + (c.last_name?.[0] ?? "")}
@@ -57,6 +54,7 @@ export default async function ClientsPage({ searchParams }: PageProps<"/clients"
               </li>
             ))}
           </ul>
+          </ClientFinder>
         )}
       </Page>
     </>

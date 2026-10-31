@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ConfirmButton } from "@/components/confirm-button";
 import { requireStaff } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { dayLabel, money, phoneLabel, timeLabel } from "@/lib/format";
@@ -100,7 +101,7 @@ export default async function RequestsPage({ searchParams }: PageProps<"/request
               {r.notes && <p className="whitespace-pre-line rounded-xl bg-bg p-2 text-sm">{r.notes}</p>}
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <form action={setStatusAction.bind(null, r.id, "declined")}>
-                  <Button type="submit" kind="danger" className="w-full">Decline</Button>
+                  <ConfirmButton question="Decline this request? The client gets an email to pick another time." className="w-full rounded-full bg-danger-soft py-3 font-semibold text-danger">Decline</ConfirmButton>
                 </form>
                 <form action={setStatusAction.bind(null, r.id, "confirmed")}>
                   <Button type="submit" className="w-full">Accept</Button>

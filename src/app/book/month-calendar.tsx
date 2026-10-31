@@ -2,6 +2,7 @@
 import { useState } from "react";
 import type { DaySlots } from "@/lib/booking";
 import { ChevronLeft, ChevronRight } from "@/components/icons";
+import { Swipe } from "@/components/swipe";
 
 // A month grid. Days with open times are tappable and show green dots (two for a day with
 // plenty of room, one when only a time or two is left); other days are greyed out.
@@ -55,7 +56,10 @@ export function MonthCalendar({
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-7 gap-y-2 text-center" role="group" aria-label={monthName(month)}>
+      {/* Swipe sideways for the month before or after, like the arrows. */}
+      <Swipe className="grid grid-cols-7 gap-y-2 text-center" label={monthName(month)}
+        prev={month > monthOf(today) ? () => setMonth(shiftMonth(month, -1)) : null}
+        next={month < monthOf(last) ? () => setMonth(shiftMonth(month, 1)) : null}>
         {WEEK.map((w, i) => (
           <span key={i} className="pb-1 text-xs font-semibold text-muted" aria-hidden>
             {w}
@@ -93,7 +97,7 @@ export function MonthCalendar({
             </div>
           );
         })}
-      </div>
+      </Swipe>
     </div>
   );
 }

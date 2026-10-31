@@ -17,6 +17,7 @@ import { accessLabel, homeSizeLabel } from "@/lib/home-options";
 import { discountLabel, FREQUENCY_LABEL } from "@/lib/pricing";
 import { homeStanding } from "@/lib/data/discounts";
 import { RescheduleForm } from "../reschedule-form";
+import { ConfirmButton } from "@/components/confirm-button";
 import { AddressLink, PhoneLink } from "@/components/contact-sheet";
 
 export const metadata: Metadata = { title: "Appointment" };
@@ -24,7 +25,8 @@ export const metadata: Metadata = { title: "Appointment" };
 // The main next step for each status, shown as the big button.
 const PRIMARY: Record<string, { to: string; label: string } | undefined> = {
   requested: { to: "confirmed", label: "Accept request" },
-  unconfirmed: { to: "confirmed", label: "Mark as confirmed" },
+  // A booked visit needs nothing from the owner: the client confirms from the reminder email.
+  unconfirmed: { to: "en_route", label: "I'm on the way" },
   confirmed: { to: "en_route", label: "I'm on the way" },
   en_route: { to: "in_progress", label: "Check in" },
   in_progress: { to: "completed", label: "Finish and check out" },
@@ -130,9 +132,15 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
           <div className="grid gap-2 border-t border-line p-3">
             {(NEXT_STATUS[appt.status] ?? []).map((to) => (
               <form key={to} action={setStatusAction.bind(null, id, to)}>
-                <button type="submit" className={`w-full rounded-full py-3 font-semibold ${["cancelled", "no_show", "declined"].includes(to) ? "bg-danger-soft text-danger" : "bg-bg"}`}>
-                  {STATUS_NAME[to] ?? statusLabel(to)}
-                </button>
+                {TAKES_OFF[to] ? (
+                  <ConfirmButton question={TAKES_OFF[to]} className="w-full rounded-full bg-danger-soft py-3 font-semibold text-danger">
+                    {STATUS_NAME[to] ?? statusLabel(to)}
+                  </ConfirmButton>
+                ) : (
+                  <button type="submit" className="w-full rounded-full bg-bg py-3 font-semibold">
+                    {MENU_NAME[`${appt.status}>${to}`] ?? STATUS_NAME[to] ?? statusLabel(to)}
+                  </button>
+                )}
               </form>
             ))}
           </div>
@@ -162,12 +170,12 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
           </Link>
           {canChange && (
             <form action={setStatusAction.bind(null, id, "cancelled")} className="contents">
-              <button type="submit" className={`${pillar} text-danger hover:bg-danger-soft`}><Close size={22} />Cancel</button>
+              <ConfirmButton question={TAKES_OFF.cancelled} className={`${pillar} text-danger hover:bg-danger-soft`}><Close size={22} />Cancel</ConfirmButton>
             </form>
           )}
           {canChange && appt.status !== "requested" && (
             <form action={setStatusAction.bind(null, id, "no_show")} className="contents">
-              <button type="submit" className={`${pillar} text-danger hover:bg-danger-soft`}><Hourglass size={22} />No-show</button>
+              <ConfirmButton question={TAKES_OFF.no_show} className={`${pillar} text-danger hover:bg-danger-soft`}><Hourglass size={22} />No-show</ConfirmButton>
             </form>
           )}
           {closed && (
@@ -351,10 +359,23 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
   );
 }
 
-// Names in the status menu, as the groomer says them.
+// Changes that take the visit off the day ask first: one stray tap shouldn't lose a client.
+const TAKES_OFF: Record<string, string> = {
+  cancelled: "Cancel this cleaning? The client gets the cancellation email.",
+  no_show: "Mark as no-show? The visit comes off your day.",
+  declined: "Decline this request? The client gets an email to pick another time.",
+};
+
+// In the menu, the client's confirmation reads as what you are recording.
+const MENU_NAME: Record<string, string> = {
+  "unconfirmed>confirmed": "Client confirmed",
+  "confirmed>unconfirmed": "Client hasn't confirmed",
+};
+
+// Names in the status menu, as the cleaner says them.
 const STATUS_NAME: Record<string, string> = {
   requested: "Requested",
-  unconfirmed: "Unconfirmed",
+  unconfirmed: "Not confirmed",
   confirmed: "Confirmed",
   en_route: "On the way",
   in_progress: "Checked in",
@@ -367,7 +388,7 @@ const STATUS_NAME: Record<string, string> = {
 const STATUS_DOT: Record<string, string> = {
   requested: "bg-warn",
   unconfirmed: "bg-danger",
-  confirmed: "bg-brand",
+  confirmed: "bg-success",
   en_route: "bg-sky",
   in_progress: "bg-success",
   completed: "bg-navy",

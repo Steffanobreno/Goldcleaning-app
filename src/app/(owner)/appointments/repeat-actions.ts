@@ -15,6 +15,12 @@ export type RepeatState = {
 
 function readRule(form: FormData): RepeatRule | string {
   const freq = String(form.get("freq"));
+  if (form.get("mode") === "dates") {
+    const dates = String(form.get("dates") ?? "").split(",").filter((d) => isYmd(d));
+    if (dates.length === 0) return "Pick at least one more day on the calendar.";
+    if (dates.length > MAX_VISITS) return `Pick up to ${MAX_VISITS} days.`;
+    return { freq: "dates", every: 1, count: dates.length + 1, until: null, dates };
+  }
   const every = Number(form.get("every"));
   const ends = String(form.get("ends"));
   const count = Number(form.get("count"));

@@ -7,7 +7,8 @@ import { loadCatalog } from "@/lib/data/catalog";
 import { activeDiscounts, homeStanding } from "@/lib/data/discounts";
 import { sql } from "@/lib/db";
 import { dayLabel, isYmd, phoneLabel, timeLabel, todayYmd, zonedToUtc } from "@/lib/format";
-import { ButtonLink, Empty, Input, Page, PageHeader } from "@/components/ui";
+import { ButtonLink, Empty, Page, PageHeader } from "@/components/ui";
+import { ClientFinder } from "@/components/client-finder";
 import { createAppointmentAction } from "../actions";
 import { BookingForm } from "../booking-form";
 import { nearbyDays } from "@/lib/data/appointments";
@@ -33,20 +34,14 @@ export default async function NewAppointmentPage({ searchParams }: PageProps<"/a
       <>
         <PageHeader title="Who is it for?" back="/calendar" />
         <Page>
-          <form role="search" className="flex gap-2">
-            <input type="hidden" name="date" value={date} />
-            <input type="hidden" name="time" value={time} />
-            {typeof sp.groomer === "string" && <input type="hidden" name="groomer" value={sp.groomer} />}
-            <label className="sr-only" htmlFor="q">Search clients</label>
-            <Input id="q" name="q" type="search" defaultValue={q} placeholder="Search by name, phone or address" autoFocus />
-          </form>
           <ButtonLink kind="secondary" href="/clients/new" className="w-full">New client</ButtonLink>
           {clients.length === 0 ? (
             <Empty title="No client found" />
           ) : (
+            <ClientFinder initialQuery={q} placeholder="Search by name, phone or address" autoFocus>
             <ul className="card divide-y divide-line overflow-hidden">
               {clients.map((c) => (
-                <li key={c.id}>
+                <li key={c.id} data-letter={c.first_name} data-search={[fullName(c), c.phone, c.home_summary, c.city].filter(Boolean).join(" ")}>
                   <Link href={`/appointments/new?client=${c.id}${keep}`} className="flex items-center gap-3 px-4 py-3 hover:bg-bg">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-navy text-sm font-bold text-white">
                       {initials(c)}
@@ -61,6 +56,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps<"/a
                 </li>
               ))}
             </ul>
+            </ClientFinder>
           )}
         </Page>
       </>

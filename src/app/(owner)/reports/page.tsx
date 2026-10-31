@@ -4,7 +4,8 @@ import { requireStaff } from "@/lib/auth";
 import { report, type Group } from "@/lib/data/reports";
 import { addDaysYmd, isYmd, money, todayYmd, weekdayOf } from "@/lib/format";
 import { methodLabel } from "@/lib/payment-methods";
-import { Button, Input, Page, PageHeader } from "@/components/ui";
+import { Button, Page, PageHeader } from "@/components/ui";
+import { DateField } from "@/components/date-field";
 
 export const metadata: Metadata = { title: "Reports" };
 
@@ -75,11 +76,11 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
         <form className="card flex flex-wrap items-end gap-2 px-4 py-3">
           <label className="min-w-0 flex-1">
             <span className="text-xs font-semibold text-muted">From</span>
-            <Input type="date" name="from" defaultValue={from} required />
+            <DateField name="from" defaultValue={from} required />
           </label>
           <label className="min-w-0 flex-1">
             <span className="text-xs font-semibold text-muted">To</span>
-            <Input type="date" name="to" defaultValue={to} required />
+            <DateField name="to" defaultValue={to} required />
           </label>
           <Button type="submit" kind="secondary">Show</Button>
         </form>

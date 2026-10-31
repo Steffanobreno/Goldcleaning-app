@@ -7,7 +7,8 @@ import { loginAction, setupAction } from "./actions";
 export function LoginForm({ mode }: { mode: "login" | "setup" }) {
   const [state, action, pending] = useActionState(mode === "login" ? loginAction : setupAction, undefined);
   return (
-    <ActionForm action={action} className="space-y-4">
+    // Just logged in with the password: the app lock doesn't ask for the PIN right away.
+    <ActionForm action={(f) => { try { sessionStorage.setItem("gold:unlocked-at", String(Date.now())); } catch {} action(f); }} className="space-y-4">
       {state?.error && <Notice kind="error">{state.error}</Notice>}
       <Field label="Email">
         <Input name="email" type="email" autoComplete="email" required />

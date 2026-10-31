@@ -3,6 +3,7 @@ import { useActionState, useState } from "react";
 import { ActionForm } from "@/components/action-form";
 import { Button, Card, Field, Input, Notice, Select, Textarea } from "@/components/ui";
 import type { FormState } from "../../appointments/actions";
+import { DateField } from "@/components/date-field";
 
 // Blocked time: a date, a start and an end (or all day), a description,
 // and for a new block an optional weekly repeat.
@@ -36,7 +37,7 @@ export function BlockForm({ action, initial, isNew, groomers = [], defaultGroome
           </div>
         )}
         <Field label="Date">
-          <Input type="date" name="date" defaultValue={initial.date} required />
+          <DateField name="date" defaultValue={initial.date} required />
         </Field>
         <label className="flex items-center justify-between gap-3 py-1">
           <span className="font-semibold">All day</span>
@@ -65,7 +66,7 @@ export function BlockForm({ action, initial, isNew, groomers = [], defaultGroome
           </Field>
           {repeat !== "0" && (
             <Field label="Repeat until">
-              <Input type="date" name="until" min={initial.date} required />
+              <DateField name="until" min={initial.date} required />
             </Field>
           )}
         </Card>

@@ -56,6 +56,7 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
   const [promoError, setPromoError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [booked, setBooked] = useState(false);
   const [pending, startTransition] = useTransition();
   const top = useRef<HTMLDivElement>(null);
 
@@ -107,6 +108,7 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
       const r = await requestBookingAction({ contact, choice, start: start!, address, access, shownTotalCents: total, couponCode: coupon?.code, website });
       if ("ok" in r) {
         setDone(r.when);
+        setBooked(!!r.accepted);
         top.current?.scrollIntoView({ behavior: "smooth" });
         return;
       }
@@ -126,9 +128,13 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
       <div ref={top} className="card space-y-3 p-6 text-center">
         <p className="text-4xl" aria-hidden>✨</p>
         <h1 className="font-serif text-2xl font-bold">Thank you, {contact.firstName}!</h1>
-        <p>
-          We received your request{done ? ` for ${done}` : ""}. We&apos;ll confirm by email within 24 hours.
-        </p>
+        {booked ? (
+          <p>You&apos;re booked{done ? ` for ${done}` : ""}. We sent the details by email.</p>
+        ) : (
+          <p>
+            We received your request{done ? ` for ${done}` : ""}. We&apos;ll confirm by email within 24 hours.
+          </p>
+        )}
         <p className="text-sm text-muted">Questions? Call or text us at {businessPhone}.</p>
       </div>
     );

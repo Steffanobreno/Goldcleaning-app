@@ -2,9 +2,10 @@
 import Link from "next/link";
 import { useActionState, useState } from "react";
 import { ActionForm } from "@/components/action-form";
-import { Button, Card, Field, Input, Notice, Select } from "@/components/ui";
+import { Button, Card, Field, Notice, Select } from "@/components/ui";
 import { MAX_VISITS, repeatDates, ruleLabel, type RepeatRule } from "@/lib/repeat";
 import type { RepeatState } from "../../repeat-actions";
+import { DateField, MonthPicker } from "@/components/date-field";
 
 // Repeat type (day / week / month), every N, and when it ends (after N times or on a date),
 // with the dates listed live below. Saving books them.
@@ -24,13 +25,19 @@ export function RepeatForm({ appointmentId, clientId, first, time, initial, repe
 }) {
   const [state, saveAction, saving] = useActionState(save, undefined);
   const [stopState, stopAction, stopping] = useActionState(stop, undefined);
-  const [freq, setFreq] = useState(initial.freq);
+  // Every N days/weeks/months, or days picked one by one on the calendar.
+  const [mode, setMode] = useState<"rule" | "dates">(initial.freq === "dates" ? "dates" : "rule");
+  const [picked, setPicked] = useState<string[]>(initial.dates ?? []);
+  const [freq, setFreq] = useState<"day" | "week" | "month">(initial.freq === "dates" ? "week" : initial.freq);
   const [every, setEvery] = useState(initial.every);
   const [ends, setEnds] = useState<"count" | "date">(initial.until ? "date" : "count");
   const [count, setCount] = useState(initial.count ?? 10);
   const [until, setUntil] = useState(initial.until ?? "");
-  const rule: RepeatRule = { freq, every, count: ends === "count" ? count : null, until: ends === "date" ? until || null : null };
-  const dates = ends === "date" && !until ? [first] : repeatDates(first, rule);
+  const rule: RepeatRule = mode === "dates"
+    ? { freq: "dates", every: 1, count: null, until: null, dates: picked }
+    : { freq, every, count: ends === "count" ? count : null, until: ends === "date" ? until || null : null };
+  const dates = mode === "rule" && ends === "date" && !until ? [first] : repeatDates(first, rule);
+  const toggle = (d: string) => setPicked((p) => (p.includes(d) ? p.filter((x) => x !== d) : [...p, d].sort()));
   const result = state?.done ?? stopState?.done;
 
   if (result) {
@@ -62,6 +69,32 @@ export function RepeatForm({ appointmentId, clientId, first, time, initial, repe
     <div className="space-y-4">
       <ActionForm action={saveAction} className="space-y-4">
         {state?.error && <Notice kind="error">{state.error}</Notice>}
+        <input type="hidden" name="mode" value={mode} />
+        <nav aria-label="How it repeats" className="grid grid-cols-2 gap-1 rounded-2xl bg-surface p-1 shadow-[var(--shadow-card)]">
+          {([["rule", "Every few weeks"], ["dates", "Pick dates"]] as const).map(([m, label]) => (
+            <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)}
+              className={`rounded-xl py-2 text-sm font-semibold ${mode === m ? "bg-navy text-white" : "text-muted"}`}>
+              {label}
+            </button>
+          ))}
+        </nav>
+        {mode === "dates" ? (
+          <Card className="space-y-3">
+            <input type="hidden" name="dates" value={picked.join(",")} />
+            <p className="text-sm text-muted">Tap each day to book (tap again to remove). Swipe for other months. Same home, service and time ({time}).</p>
+            <MonthPicker value={first} start={first} min={first} onPick={(d) => d !== first && toggle(d)} marked={picked} />
+            {picked.length > 0 && (
+              <div className="flex flex-wrap gap-1.5" aria-label="Chosen days">
+                {picked.map((d) => (
+                  <button key={d} type="button" onClick={() => toggle(d)} aria-label={`Remove ${fmt(d)}`}
+                    className="rounded-full bg-brand-soft px-2.5 py-1 text-xs font-bold text-brand-strong">
+                    {fmt(d)} ✕
+                  </button>
+                ))}
+              </div>
+            )}
+          </Card>
+        ) : (<>
         <Card className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Repeat every">
@@ -70,7 +103,7 @@ export function RepeatForm({ appointmentId, clientId, first, time, initial, repe
               </Select>
             </Field>
             <Field label={"\u00a0"}>
-              <Select name="freq" aria-label="Repeat type" value={freq} onChange={(e) => setFreq(e.target.value as RepeatRule["freq"])}>
+              <Select name="freq" aria-label="Repeat type" value={freq} onChange={(e) => setFreq(e.target.value as "day" | "week" | "month")}>
                 <option value="day">{every === 1 ? "day" : "days"}</option>
                 <option value="week">{every === 1 ? "week" : "weeks"}</option>
                 <option value="month">{every === 1 ? "month" : "months"}</option>
@@ -108,10 +141,11 @@ export function RepeatForm({ appointmentId, clientId, first, time, initial, repe
             </div>
           ) : (
             <Field label="Last day">
-              <Input type="date" name="until" min={first} value={until} onChange={(e) => setUntil(e.target.value)} required />
+              <DateField name="until" min={first} value={until} onChange={setUntil} required />
             </Field>
           )}
         </Card>
+        </>)}
 
         <Card className="space-y-2">
           <div className="flex items-baseline justify-between">

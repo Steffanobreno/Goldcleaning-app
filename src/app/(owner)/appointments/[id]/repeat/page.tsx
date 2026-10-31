@@ -21,9 +21,16 @@ export default async function RepeatPage({ params }: PageProps<"/appointments/[i
   if (!a) notFound();
   // A new repeat starts from the frequency the client booked (every 4 weeks for a one-time cleaning).
   const weeks = { weekly: 1, biweekly: 2, every_4_weeks: 4 }[a.frequency] ?? 4;
-  const initial: RepeatRule = a.freq
-    ? { freq: a.freq, every: a.interval_n ?? 1, count: a.occurrences, until: a.ends_on }
-    : { freq: "week", every: weeks, count: 10, until: null };
+  // Days picked one by one: the later visits of the series are those days.
+  const later = a.freq === "dates" && a.series_id ? await sql<{ d: string }[]>`
+    select to_char(start_at at time zone ${staff.timezone}, 'YYYY-MM-DD') as d from appointments
+    where series_id = ${a.series_id} and start_at > ${a.start_at} and status not in ('cancelled', 'no_show', 'declined')
+    order by start_at` : [];
+  const initial: RepeatRule = a.freq === "dates"
+    ? { freq: "dates", every: 1, count: null, until: null, dates: later.map((r) => r.d) }
+    : a.freq
+      ? { freq: a.freq, every: a.interval_n ?? 1, count: a.occurrences, until: a.ends_on }
+      : { freq: "week", every: weeks, count: 10, until: null };
   return (
     <>
       <PageHeader title="Repeat" back={`/appointments/${id}`} />

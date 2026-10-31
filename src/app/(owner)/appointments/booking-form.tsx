@@ -6,6 +6,7 @@ import { minutesLabel, money } from "@/lib/format";
 import { homeSizeLabel } from "@/lib/home-options";
 import { agreedQuote, discountLabel, FREQUENCIES, FREQUENCY_LABEL, quote, totalCents, withDiscounts, type Catalog, type DiscountDef, type Frequency } from "@/lib/pricing";
 import type { FormState } from "./actions";
+import { DateField } from "@/components/date-field";
 
 type Home = { id: string; label: string; bedrooms: number; full_baths: number; half_baths: number; address: string };
 /** Editing the price of a booked visit: its home is fixed and there is no date to pick. */
@@ -175,7 +176,7 @@ export function BookingForm({
         {!edit && (
         <div className="grid grid-cols-2 gap-3 px-4 py-4">
           <Field label="Date">
-            <Input type="date" name="date" defaultValue={defaultDate} required />
+            <DateField name="date" defaultValue={defaultDate} required />
           </Field>
           <Field label="Start time">
             <Input type="time" name="time" value={time} onChange={(e) => setTime(e.target.value)} step={900} required />

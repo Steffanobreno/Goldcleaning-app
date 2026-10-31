@@ -2,10 +2,12 @@
 // Pure functions, used by the repeat form (live list) and the server (to book them).
 
 export type RepeatRule = {
-  freq: "day" | "week" | "month";
+  /** "dates": the visit repeats on the days picked one by one (in `dates`). */
+  freq: "day" | "week" | "month" | "dates";
   every: number; // 1–52
   count: number | null; // how many visits in total, this one included (at most 100)
   until: string | null; // or the last day (yyyy-MM-dd)
+  dates?: string[]; // with freq "dates": the days picked (yyyy-MM-dd)
 };
 
 export const MAX_VISITS = 100;
@@ -29,6 +31,10 @@ function step(first: string, rule: RepeatRule, k: number) {
 
 /** Every date of the rule, starting with `first` itself. */
 export function repeatDates(first: string, rule: RepeatRule) {
+  if (rule.freq === "dates") {
+    const picked = [...new Set(rule.dates ?? [])].filter((d) => d > first).sort();
+    return [first, ...picked].slice(0, MAX_VISITS);
+  }
   const limit = Math.min(rule.count ?? MAX_VISITS, MAX_VISITS);
   const last = new Date(Date.UTC(+first.slice(0, 4), +first.slice(5, 7) - 1, +first.slice(8, 10) + MAX_DAYS)).toISOString().slice(0, 10);
   const end = rule.until && rule.until < last ? rule.until : last;
@@ -46,6 +52,10 @@ const fmt = (d: string, o: Intl.DateTimeFormatOptions) => new Date(`${d}T12:00:0
 
 /** "Every 2 weeks on Friday, 10 times" */
 export function ruleLabel(first: string, rule: RepeatRule) {
+  if (rule.freq === "dates") {
+    const n = rule.dates ? repeatDates(first, rule).length : rule.count ?? 0;
+    return `On ${n} chosen date${n === 1 ? "" : "s"}`;
+  }
   const unit = rule.every === 1 ? rule.freq : `${rule.every} ${rule.freq}s`;
   const on = rule.freq === "week" ? ` on ${WEEKDAYS[new Date(`${first}T12:00:00Z`).getUTCDay()]}`
     : rule.freq === "month" ? ` on day ${Number(first.slice(8))}` : "";

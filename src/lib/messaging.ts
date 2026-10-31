@@ -1,4 +1,5 @@
 import "server-only";
+import { inBackground } from "./background";
 import { formatInTimeZone } from "date-fns-tz";
 import { sql } from "./db";
 import { ctaFor, emailConfigured, sendEmail, type EmailDetails } from "./email";
@@ -145,7 +146,8 @@ export async function notifyAppointment(appointmentId: string, trigger: Trigger)
   if (!t) return;
   // Keyed on the start time, so a rescheduled visit gets a fresh "booked" message.
   await enqueue(c, trigger, t, `${trigger}:${c.id}:${c.start_at.getTime()}`);
-  await sendQueuedEmails(c.business_id);
+  // The email goes out after the screen has answered, so a tap never waits on the mail server.
+  await inBackground(() => sendQueuedEmails(c.business_id));
 }
 
 /**
@@ -167,7 +169,7 @@ export async function notifyQuote(quoteId: string) {
       values (${q.business_id}, 'out', 'email', ${q.email}, ${render(t.email_subject ?? q.business, vars)}, ${render(t.body, vars)},
               'quote_received', 'queued', ${`quote:${quoteId}:email`})
       on conflict (dedupe_key) do nothing`;
-    await sendQueuedEmails(q.business_id);
+    await inBackground(() => sendQueuedEmails(q.business_id));
   }
   const kind = q.kind === "office" ? "Office" : "Airbnb";
   const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");

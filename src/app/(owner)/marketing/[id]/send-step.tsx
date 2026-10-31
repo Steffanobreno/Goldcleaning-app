@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { Button, Card, Field, Input, Notice } from "@/components/ui";
 import type { CampaignState } from "../actions";
+import { DateField } from "@/components/date-field";
 
 // Step 3: a test to yourself, then send now or pick a day and time.
 
@@ -52,7 +53,7 @@ export function SendStep({ count, ownerEmail, today, sendTest, sendNow, schedule
         {later?.error && <Notice kind="error">{later.error}</Notice>}
         <ActionForm action={laterAction} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Day"><Input type="date" name="date" min={today} defaultValue={today} required /></Field>
+            <Field label="Day"><DateField name="date" min={today} defaultValue={today} required /></Field>
             <Field label="Time"><Input type="time" name="time" step={900} defaultValue="09:00" required /></Field>
           </div>
           <Button type="submit" kind="secondary" className="w-full" disabled={scheduling}>{scheduling ? "Saving…" : "Schedule"}</Button>
