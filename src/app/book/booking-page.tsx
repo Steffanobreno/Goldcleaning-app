@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { money } from "@/lib/format";
+import { useT } from "@/components/i18n";
 import { ACCESS_METHODS } from "@/lib/home-options";
 import { FREQUENCIES, FREQUENCY_LABEL, quote, totalCents, type Catalog, type Frequency } from "@/lib/pricing";
 import type { DaySlots } from "@/lib/booking";
@@ -33,6 +34,7 @@ function Section({ n, title, children, id }: { n: number; title: string; childre
 export function BookingPage({ initialCatalog, today, businessPhone, initialPhone = "" }: {
   initialCatalog: Catalog; today: string; businessPhone: string; initialPhone?: string;
 }) {
+  const { t, locale, serverMessage } = useT();
   const [catalog, setCatalog] = useState(initialCatalog);
   const services = catalog.services;
   const [serviceId, setServiceId] = useState(services.find((s) => s.pricing === "rate")?.id ?? "");
@@ -72,8 +74,11 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
   const saving = coupon ? Math.min(coupon.savingCents, subtotal) : 0;
   const total = subtotal - saving;
   const shownLines = priced ? (coupon && saving ? [...priced.lines, { kind: "coupon" as const, serviceId: null, label: coupon.label, qty: 1, unitCents: -saving, amountCents: -saving }] : priced.lines) : [];
-  const homeLabel = `${home.bedrooms === 0 ? "Studio" : `${home.bedrooms} bd`} / ${home.fullBaths} ba${home.halfBaths ? ` / ${home.halfBaths} half` : ""}`;
-  const title = service ? `${service.name.replace(/ Clean(ing)?$/, "")} · ${FREQUENCY_LABEL[freq]} · ${homeLabel}` : "";
+  // Dates and the Morning/Afternoon names, in the client's language.
+  const dayText = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString(locale, { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });
+  const slotName = (label: string) => t(label);
+  const homeLabel = `${home.bedrooms === 0 ? t("Studio") : t("{n} bd", { n: home.bedrooms })} / ${t("{n} ba", { n: home.fullBaths })}${home.halfBaths ? ` / ${t("{n} half", { n: home.halfBaths })}` : ""}`;
+  const title = service ? `${service.name.replace(/ Clean(ing)?$/, "")} · ${t(FREQUENCY_LABEL[freq])} · ${homeLabel}` : "";
 
   const contactOk =
     contact.firstName.trim() !== "" && /^\S+@\S+\.\S+$/.test(contact.email.trim()) && contact.phone.replace(/\D/g, "").length >= 10;
@@ -93,8 +98,8 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
     slotsAction(bedrooms).then((r) => {
       if (!live) return;
       setDays(r.days ?? []);
-      setSlotsError(r.error ?? null);
-      if (r.days && start && !r.days.some((d) => d.times.some((t) => t.value === start))) setStart(null);
+      setSlotsError(r.error ? serverMessage(r.error) : null);
+      if (r.days && start && !r.days.some((d) => d.times.some((tm) => tm.value === start))) setStart(null);
     });
     return () => {
       live = false;
@@ -112,7 +117,7 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
         top.current?.scrollIntoView({ behavior: "smooth" });
         return;
       }
-      setError(r.error);
+      setError(serverMessage(r.error));
       if (r.catalog) setCatalog(r.catalog); // new prices: the bar shows the new total
       if (r.taken) {
         setStart(null);
@@ -127,32 +132,31 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
     return (
       <div ref={top} className="card space-y-3 p-6 text-center">
         <p className="text-4xl" aria-hidden>✨</p>
-        <h1 className="font-serif text-2xl font-bold">Thank you, {contact.firstName}!</h1>
+        <h1 className="font-serif text-2xl font-bold">{t("Thank you, {name}!", { name: contact.firstName })}</h1>
         {booked ? (
-          <p>You&apos;re booked{done ? ` for ${done}` : ""}. We sent the details by email.</p>
+          <p>{done ? t("You're booked for {when}. We sent the details by email.", { when: done }) : t("You're booked. We sent the details by email.")}</p>
         ) : (
           <p>
-            We received your request{done ? ` for ${done}` : ""}. We&apos;ll confirm by email within 24 hours.
+            {done ? t("We received your request for {when}. We'll confirm by email within 24 hours.", { when: done }) : t("We received your request. We'll confirm by email within 24 hours.")}
           </p>
         )}
-        <p className="text-sm text-muted">Questions? Call or text us at {businessPhone}.</p>
+        <p className="text-sm text-muted">{t("Questions? Call or text us at {phone}.", { phone: businessPhone })}</p>
       </div>
     );
   }
 
   return (
     <div ref={top} className="space-y-7">
-      <Section n={1} title="Service">
+      <Section n={1} title={t("Service")}>
         <p className="rounded-2xl bg-gold-soft px-4 py-3 text-sm">
-          <strong>About our flat-rate prices:</strong> they assume a home in average condition. Heavy buildup needs a Deep Clean.
-          We confirm the final price after reviewing your request.
+          <strong>{t("About our flat-rate prices:")}</strong> {t("they assume a home in average condition. Heavy buildup needs a Deep Clean. We confirm the final price after reviewing your request.")}
         </p>
-        <div className="space-y-2" role="radiogroup" aria-label="Service">
+        <div className="space-y-2" role="radiogroup" aria-label={t("Service")}>
           {services.map((s) => (
             <button key={s.id} type="button" role="radio" aria-checked={s.id === serviceId} className={pill(s.id === serviceId)}
               onClick={() => setServiceId(s.id)}>
               {s.name}
-              {s.pricing === "quote" && <span className="font-normal opacity-80"> (get a quote)</span>}
+              {s.pricing === "quote" && <span className="font-normal opacity-80"> {t("(get a quote)")}</span>}
             </button>
           ))}
         </div>
@@ -164,33 +168,33 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
       ) : (
         <>
           {offered.length > 1 && (
-            <Section n={2} title="Frequency">
-              <div className="space-y-2" role="radiogroup" aria-label="Frequency">
+            <Section n={2} title={t("Frequency")}>
+              <div className="space-y-2" role="radiogroup" aria-label={t("Frequency")}>
                 {offered.map((f) => (
                   <button key={f} type="button" role="radio" aria-checked={f === freq} className={pill(f === freq)} onClick={() => setFrequency(f)}>
-                    {FREQUENCY_LABEL[f]} <span className="font-normal opacity-80">from {money(service!.rates[f]!.startCents).replace(/\.00$/, "")}</span>
+                    {t(FREQUENCY_LABEL[f])} <span className="font-normal opacity-80">{t("from {price}", { price: money(service!.rates[f]!.startCents).replace(/\.00$/, "") })}</span>
                   </button>
                 ))}
               </div>
             </Section>
           )}
 
-          <Section n={3} title="Your home">
+          <Section n={3} title={t("Your home")}>
             <div className="grid grid-cols-3 gap-2">
               <label className="space-y-1 text-sm font-medium">
-                Bedrooms
+                {t("Bedrooms")}
                 <select className={field} value={home.bedrooms} onChange={(e) => setHome({ ...home, bedrooms: Number(e.target.value) })}>
-                  {range(0, 7).map((n) => <option key={n} value={n}>{n === 0 ? "Studio" : n}</option>)}
+                  {range(0, 7).map((n) => <option key={n} value={n}>{n === 0 ? t("Studio") : n}</option>)}
                 </select>
               </label>
               <label className="space-y-1 text-sm font-medium">
-                Full baths
+                {t("Full baths")}
                 <select className={field} value={home.fullBaths} onChange={(e) => setHome({ ...home, fullBaths: Number(e.target.value) })}>
                   {range(1, 7).map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
               </label>
               <label className="space-y-1 text-sm font-medium">
-                Half baths
+                {t("Half baths")}
                 <select className={field} value={home.halfBaths} onChange={(e) => setHome({ ...home, halfBaths: Number(e.target.value) })}>
                   {range(0, 7).map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
@@ -198,23 +202,23 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
             </div>
           </Section>
 
-          <Section n={4} title="Extras">
+          <Section n={4} title={t("Extras")}>
             <p className="rounded-2xl border border-gold/40 bg-gold-soft/60 px-4 py-3 text-sm">
-              If you choose inside cabinets, fridge or oven, please empty them before we arrive.
+              {t("If you choose inside cabinets, fridge or oven, please empty them before we arrive.")}
             </p>
             <ExtrasGrid extras={catalog.extras} qty={qty} onChange={(id, n) => setQty({ ...qty, [id]: Math.max(n, 0) })} />
           </Section>
 
-          <Section n={5} title="Contact">
+          <Section n={5} title={t("Contact")}>
             <div className="grid grid-cols-2 gap-2">
-              <input className={field} aria-label="First name" placeholder="First name" autoComplete="given-name" value={contact.firstName}
+              <input className={field} aria-label={t("First name")} placeholder={t("First name")} autoComplete="given-name" value={contact.firstName}
                 onChange={(e) => setContact({ ...contact, firstName: e.target.value })} />
-              <input className={field} aria-label="Last name" placeholder="Last name" autoComplete="family-name" value={contact.lastName}
+              <input className={field} aria-label={t("Last name")} placeholder={t("Last name")} autoComplete="family-name" value={contact.lastName}
                 onChange={(e) => setContact({ ...contact, lastName: e.target.value })} />
             </div>
-            <input className={field} aria-label="Email" placeholder="Email" type="email" autoComplete="email" value={contact.email}
+            <input className={field} aria-label={t("Email")} placeholder={t("Email")} type="email" autoComplete="email" value={contact.email}
               onChange={(e) => setContact({ ...contact, email: e.target.value })} />
-            <input className={field} aria-label="Mobile phone" placeholder="Mobile phone" type="tel" inputMode="tel" autoComplete="tel"
+            <input className={field} aria-label={t("Mobile phone")} placeholder={t("Mobile phone")} type="tel" inputMode="tel" autoComplete="tel"
               value={contact.phone} onChange={(e) => setContact({ ...contact, phone: e.target.value })} />
             {/* People never see this field; bots fill it in. */}
             <input tabIndex={-1} autoComplete="off" aria-hidden className="hidden" name="website" value={website} onChange={(e) => setWebsite(e.target.value)} />
@@ -225,27 +229,27 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
                   draft("contact");
                   setTimeout(() => document.getElementById("when")?.scrollIntoView({ behavior: "smooth" }), 50);
                 }}>
-                See available times
+                {t("See available times")}
               </button>
             )}
           </Section>
 
           {contactDone && (
             <>
-              <Section n={6} title="Date & time" id="when">
+              <Section n={6} title={t("Date & time")} id="when">
                 {slotsError && <p className="rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">{slotsError}</p>}
                 {error && !start && <p role="alert" className="rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">{error}</p>}
-                {days === null && !slotsError && <p className="text-muted">Loading open days…</p>}
+                {days === null && !slotsError && <p className="text-muted">{t("Loading open days…")}</p>}
                 {days && days.length > 0 && (
                   <MonthCalendar days={days} today={today} selected={date} onSelect={(d) => { setDate(d); setStart(null); }} />
                 )}
                 {day && (
                   <div className="space-y-2">
-                    <p className="text-sm font-semibold uppercase tracking-wider text-muted">{day.label}</p>
-                    {day.times.map((t) => (
-                      <button key={t.value} type="button" className={pill(t.value === start)} aria-pressed={t.value === start}
-                        onClick={() => { setStart(t.value); draft("date", { start: t.value }); }}>
-                        {t.slotLabel} · {t.label}
+                    <p className="text-sm font-semibold uppercase tracking-wider text-muted">{dayText(day.date)}</p>
+                    {day.times.map((tm) => (
+                      <button key={tm.value} type="button" className={pill(tm.value === start)} aria-pressed={tm.value === start}
+                        onClick={() => { setStart(tm.value); draft("date", { start: tm.value }); }}>
+                        {slotName(tm.slotLabel)} · {tm.label}
                       </button>
                     ))}
                   </div>
@@ -254,66 +258,66 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
 
               {start && (
                 <>
-                  <Section n={7} title="Address">
-                    <input className={field} aria-label="Street address" placeholder="Street address" autoComplete="address-line1"
+                  <Section n={7} title={t("Address")}>
+                    <input className={field} aria-label={t("Street address")} placeholder={t("Street address")} autoComplete="address-line1"
                       value={address.line} onChange={(e) => setAddress({ ...address, line: e.target.value })} />
-                    <input className={field} aria-label="Apartment or unit (optional)" placeholder="Apt / unit (optional)"
+                    <input className={field} aria-label={t("Apartment or unit (optional)")} placeholder={t("Apt / unit (optional)")}
                       autoComplete="address-line2" value={address.apt} onChange={(e) => setAddress({ ...address, apt: e.target.value })} />
                     <div className="grid grid-cols-[1fr_7rem] gap-2">
-                      <input className={field} aria-label="City" placeholder="City" autoComplete="address-level2" value={address.city}
+                      <input className={field} aria-label={t("City")} placeholder={t("City")} autoComplete="address-level2" value={address.city}
                         onChange={(e) => setAddress({ ...address, city: e.target.value })} />
-                      <input className={field} aria-label="ZIP" placeholder="ZIP" inputMode="numeric" maxLength={5} autoComplete="postal-code"
+                      <input className={field} aria-label={t("ZIP")} placeholder={t("ZIP")} inputMode="numeric" maxLength={5} autoComplete="postal-code"
                         value={address.zip} onChange={(e) => setAddress({ ...address, zip: e.target.value.replace(/\D/g, "") })}
                         onBlur={() => draft("address", { zip: address.zip, addressLine: address.line, city: address.city })} />
                     </div>
                   </Section>
 
-                  <Section n={8} title="Access">
-                    <div className="space-y-2" role="radiogroup" aria-label="How we get in">
+                  <Section n={8} title={t("Access")}>
+                    <div className="space-y-2" role="radiogroup" aria-label={t("How we get in")}>
                       {ACCESS_METHODS.map((m) => (
                         <button key={m.value} type="button" role="radio" aria-checked={access.method === m.value} className={pill(access.method === m.value)}
                           onClick={() => { setAccess({ ...access, method: m.value }); draft("access"); }}>
-                          {m.label}
+                          {t(m.label)}
                         </button>
                       ))}
                     </div>
                     {["key", "lockbox", "door_code"].includes(access.method) && (
-                      <input className={field} aria-label="Code or where the key is" placeholder="Code, or where the key will be"
+                      <input className={field} aria-label={t("Code or where the key is")} placeholder={t("Code, or where the key will be")}
                         value={access.code} onChange={(e) => setAccess({ ...access, code: e.target.value })} />
                     )}
-                    <input className={field} aria-label="Parking" placeholder="Parking (driveway, street, permit…)" value={access.parking}
+                    <input className={field} aria-label={t("Parking")} placeholder={t("Parking (driveway, street, permit…)")} value={access.parking}
                       onChange={(e) => setAccess({ ...access, parking: e.target.value })} />
-                    <input className={field} aria-label="Pets in the home" placeholder="Pets in the home (optional)" value={access.pets}
+                    <input className={field} aria-label={t("Pets in the home")} placeholder={t("Pets in the home (optional)")} value={access.pets}
                       onChange={(e) => setAccess({ ...access, pets: e.target.value })} />
-                    <textarea className={`${field} min-h-24`} aria-label="Notes for our team" placeholder="Anything else our team should know?"
+                    <textarea className={`${field} min-h-24`} aria-label={t("Notes for our team")} placeholder={t("Anything else our team should know?")}
                       value={access.notes} onChange={(e) => setAccess({ ...access, notes: e.target.value })} />
                   </Section>
 
-                  <Section n={9} title="Review">
+                  <Section n={9} title={t("Review")}>
                     <div className="card space-y-1 p-4 text-sm">
                       <p className="font-semibold">{title}</p>
-                      {day && <p>{day.label} · {day.times.find((t) => t.value === start)?.slotLabel} · {day.times.find((t) => t.value === start)?.label}</p>}
+                      {day && <p>{dayText(day.date)} · {slotName(day.times.find((tm) => tm.value === start)?.slotLabel ?? "")} · {day.times.find((tm) => tm.value === start)?.label}</p>}
                       {address.line && <p>{[address.line, address.apt, address.city, address.zip].filter(Boolean).join(", ")}</p>}
                       {coupon && saving > 0 && <p className="text-success">{coupon.label}: −{money(saving)}</p>}
-                      <p className="pt-1 text-base font-bold">Total {money(total)}</p>
+                      <p className="pt-1 text-base font-bold">{t("Total")} {money(total)}</p>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium" htmlFor="promo">Promo code (optional)</label>
+                      <label className="text-sm font-medium" htmlFor="promo">{t("Promo code (optional)")}</label>
                       <div className="flex gap-2">
-                        <input id="promo" className={field} placeholder="Enter code" autoCapitalize="characters" autoComplete="off"
+                        <input id="promo" className={field} placeholder={t("Enter code")} autoCapitalize="characters" autoComplete="off"
                           value={promo} onChange={(e) => { setPromo(e.target.value.toUpperCase()); setPromoError(null); }} disabled={!!coupon} />
                         {coupon ? (
                           <button type="button" className="shrink-0 rounded-full border border-line px-5 font-semibold"
-                            onClick={() => { setCoupon(null); setPromo(""); }}>Remove</button>
+                            onClick={() => { setCoupon(null); setPromo(""); }}>{t("Remove")}</button>
                         ) : (
                           <button type="button" className="shrink-0 rounded-full border border-navy px-5 font-semibold text-navy disabled:opacity-40"
                             disabled={!promo.trim() || pending}
                             onClick={() => startTransition(async () => {
                               const r = await checkCouponAction({ code: promo, phone: contact.phone, choice });
-                              if ("error" in r) { setPromoError(r.error); return; }
+                              if ("error" in r) { setPromoError(serverMessage(r.error)); return; }
                               setCoupon({ code: promo.trim(), label: r.label, savingCents: r.savingCents, atSubtotal: subtotal });
                               setPromoError(null);
-                            })}>Apply</button>
+                            })}>{t("Apply")}</button>
                         )}
                       </div>
                       {promoError && <p role="alert" className="text-sm text-danger">{promoError}</p>}
@@ -321,9 +325,9 @@ export function BookingPage({ initialCatalog, today, businessPhone, initialPhone
                     {error && <p role="alert" className="rounded-xl bg-danger-soft px-4 py-3 text-sm text-danger">{error}</p>}
                     <button type="button" disabled={!ready || pending} onClick={submit}
                       className="w-full rounded-full bg-gold px-4 py-3.5 text-base font-bold text-navy disabled:opacity-40">
-                      {pending ? "Sending…" : "Request booking"}
+                      {pending ? t("Sending…") : t("Request booking")}
                     </button>
-                    <p className="text-center text-sm text-muted">This is a request. We&apos;ll confirm by email within 24 hours.</p>
+                    <p className="text-center text-sm text-muted">{t("This is a request. We'll confirm by email within 24 hours.")}</p>
                   </Section>
                 </>
               )}

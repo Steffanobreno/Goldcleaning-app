@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { Phone } from "./icons";
+import { LanguagePicker } from "./i18n";
+import type { Lang, T } from "@/lib/i18n";
 
 // The frame around every page clients see (booking, confirm, cancel): a white header with
 // the name and a Call button, and a navy footer, like the website. `bare` drops both when the page sits inside the
@@ -10,15 +12,24 @@ export function ClientShell({
   phoneLabel,
   website,
   bare = false,
+  i18n,
   children,
 }: {
   phone: string | null;
   phoneLabel: string;
   website: string | null;
   bare?: boolean;
+  /** The client's language: shows the language menu and translates the frame. */
+  i18n?: { lang: Lang; t: T };
   children: ReactNode;
 }) {
-  if (bare) return <main className="mx-auto w-full max-w-lg flex-1 px-3 py-4">{children}</main>;
+  const t: T = i18n?.t ?? ((s) => s);
+  const picker = i18n && (
+    <div className="mb-3">
+      <LanguagePicker lang={i18n.lang} label={t("Language")} />
+    </div>
+  );
+  if (bare) return <main lang={i18n?.lang} className="mx-auto w-full max-w-lg flex-1 px-3 py-4">{picker}{children}</main>;
   return (
     <>
       <header className="sticky top-0 z-20 border-b border-line bg-surface">
@@ -28,23 +39,23 @@ export function ClientShell({
           </a>
           {phone && (
             <a href={`tel:${phone}`} className="flex items-center gap-1.5 text-sm font-semibold text-navy">
-              <Phone size={16} /> Call
+              <Phone size={16} /> {t("Call")}
             </a>
           )}
         </div>
       </header>
-      <main className="mx-auto w-full max-w-lg flex-1 px-3 py-5">{children}</main>
+      <main lang={i18n?.lang} className="mx-auto w-full max-w-lg flex-1 px-3 py-5">{picker}{children}</main>
       <footer className="bg-navy-deep text-white/75">
         <div className="mx-auto max-w-lg space-y-4 px-5 py-8 text-sm">
           <p className="font-serif text-base font-bold tracking-[0.2em] text-gold">PENINSULA GOLD CLEANING</p>
-          <p>Home cleaning across the Peninsula and the South Bay.</p>
+          <p>{t("Home cleaning across the Peninsula and the South Bay.")}</p>
           {phone && (
             <a href={`tel:${phone}`} className="flex items-center gap-2 text-white">
               <Phone size={16} /> {phoneLabel}
             </a>
           )}
           <p>
-            <a href="/login" className="text-xs text-white/60 underline-offset-4 hover:underline">Team login</a>
+            <a href="/login" className="text-xs text-white/60 underline-offset-4 hover:underline">{t("Team login")}</a>
           </p>
         </div>
       </footer>

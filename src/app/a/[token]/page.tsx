@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { sql } from "@/lib/db";
+import { getI18n } from "@/lib/i18n/server";
+import { LOCALES } from "@/lib/i18n";
 import { bookingUrl } from "@/lib/messaging";
-import { longDayLabel, money, phoneLabel, timeLabel } from "@/lib/format";
+import { money, phoneLabel, timeLabel } from "@/lib/format";
 import { Button, ButtonLink, Card, Field, Input, Notice } from "@/components/ui";
 import { AgreementText } from "@/components/agreement-text";
 import { ClientShell, StepCard } from "@/components/client-shell";
@@ -17,6 +19,7 @@ export default async function ClientAppointmentPage({ params, searchParams }: Pa
   const { token } = await params;
   const sp = await searchParams;
   if (!/^[0-9a-f]{24}$/.test(token)) notFound();
+  const { lang, t } = await getI18n(sp.lang);
   const [a] = await sql<
     {
       business_id: string;
@@ -57,17 +60,17 @@ export default async function ClientAppointmentPage({ params, searchParams }: Pa
   const mustSign = agreement ? !(await currentSignature(agreement, a.client_id)) : false;
 
   return (
-    <ClientShell phone={a.phone} phoneLabel={phone} website={a.website_url}>
+    <ClientShell phone={a.phone} phoneLabel={phone} website={a.website_url} i18n={{ lang, t }}>
       <StepCard className="space-y-4">
-        <h1 className="text-[28px] font-extrabold leading-tight tracking-tight">Hi {a.first_name}!</h1>
+        <h1 className="text-[28px] font-extrabold leading-tight tracking-tight">{t("Hi {name}!", { name: a.first_name })}</h1>
         <div className="space-y-3 rounded-2xl border border-line p-4">
           <p className="flex items-center gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
               <Calendar />
             </span>
             <span>
-              <span className="block text-lg font-bold">{longDayLabel(a.start_at, tz)}</span>
-              <span className="block text-muted">Arriving around {timeLabel(a.start_at, tz)}</span>
+              <span className="block text-lg font-bold">{a.start_at.toLocaleDateString(LOCALES[lang], { weekday: "long", month: "long", day: "numeric", timeZone: tz })}</span>
+              <span className="block text-muted">{t("Arriving around {time}", { time: timeLabel(a.start_at, tz) })}</span>
             </span>
           </p>
           {a.summary && (
@@ -77,33 +80,33 @@ export default async function ClientAppointmentPage({ params, searchParams }: Pa
               </span>
               <span>
                 <span className="block font-bold">{a.summary}</span>
-                <span className="block text-sm text-muted">Estimated {money(a.total_cents)}</span>
+                <span className="block text-sm text-muted">{t("Estimated {price}", { price: money(a.total_cents) })}</span>
               </span>
             </p>
           )}
         </div>
 
         {a.status === "requested" && (
-          <Notice kind="info">We received your request and will email you once it&apos;s confirmed.</Notice>
+          <Notice kind="info">{t("We received your request and will email you once it's confirmed.")}</Notice>
         )}
-        {a.status === "confirmed" && <Notice kind="success">Confirmed. See you then! ✨</Notice>}
-        {a.status === "cancelled" && <Notice kind="warn">This appointment is cancelled.</Notice>}
-        {a.status === "completed" && <Notice kind="success">All done. Thank you!</Notice>}
-        {a.status === "en_route" && <Notice kind="success">We&apos;re on our way to you! 🚐</Notice>}
-        {a.status === "in_progress" && <Notice kind="success">Cleaning in progress. ✨</Notice>}
-        {a.status === "declined" && <Notice kind="warn">Sorry, we couldn&apos;t take this request. Please pick another time.</Notice>}
-        {a.status === "no_show" && <Notice kind="warn">We missed you at this visit. Text us to book a new time.</Notice>}
+        {a.status === "confirmed" && <Notice kind="success">{t("Confirmed. See you then!")} ✨</Notice>}
+        {a.status === "cancelled" && <Notice kind="warn">{t("This appointment is cancelled.")}</Notice>}
+        {a.status === "completed" && <Notice kind="success">{t("All done. Thank you!")}</Notice>}
+        {a.status === "en_route" && <Notice kind="success">{t("We're on our way to you!")} 🚐</Notice>}
+        {a.status === "in_progress" && <Notice kind="success">{t("Cleaning in progress.")} ✨</Notice>}
+        {a.status === "declined" && <Notice kind="warn">{t("Sorry, we couldn't take this request. Please pick another time.")}</Notice>}
+        {a.status === "no_show" && <Notice kind="warn">{t("We missed you at this visit. Text us to book a new time.")}</Notice>}
         {sp.needSign && a.status === "unconfirmed" && (
-          <Notice kind="error">Please tick the box and type your full name to sign, then confirm.</Notice>
+          <Notice kind="error">{t("Please tick the box and type your full name to sign, then confirm.")}</Notice>
         )}
 
         {calendar && (
           <div className="grid grid-cols-2 gap-2">
             <a href={calendar.apple} className="rounded-full border-2 border-brand py-2.5 text-center text-sm font-bold text-brand">
-              📅 Add to iPhone
+              📅 {t("Add to iPhone")}
             </a>
             <a href={calendar.google} target="_blank" rel="noreferrer" className="rounded-full border-2 border-brand py-2.5 text-center text-sm font-bold text-brand">
-              📅 Google Calendar
+              📅 {t("Google Calendar")}
             </a>
           </div>
         )}
@@ -112,69 +115,68 @@ export default async function ClientAppointmentPage({ params, searchParams }: Pa
           <form action={confirmByTokenAction.bind(null, token)} className="space-y-3">
             {mustSign && agreement && (
               <Card className="space-y-3">
-                <p className="text-sm font-medium">Please read and sign our service agreement (once a year).</p>
+                <p className="text-sm font-medium">{t("Please read and sign our service agreement (once a year).")}</p>
                 <div
                   className="max-h-80 overflow-y-auto rounded-xl border border-line bg-bg p-3"
                   tabIndex={0}
-                  aria-label="Service agreement"
+                  aria-label={t("Service agreement")}
                 >
                   <AgreementText title={agreement.title} body={agreement.body} />
                 </div>
                 <label className="flex items-start gap-3 text-sm">
                   <input type="checkbox" name="agree" required className="mt-1 h-4 w-4" />
-                  <span>I have read and agree to the service agreement.</span>
+                  <span>{t("I have read and agree to the service agreement.")}</span>
                 </label>
-                <Field label="Type your full name to sign">
+                <Field label={t("Type your full name to sign")}>
                   <Input name="signature" required minLength={3} autoComplete="name" />
                 </Field>
               </Card>
             )}
             <Button type="submit" className="w-full rounded-full py-4 text-lg">
-              {mustSign ? "Sign and confirm" : "Confirm my appointment"}
+              {mustSign ? t("Sign and confirm") : t("Confirm my appointment")}
             </Button>
           </form>
         )}
         {open && a.upcoming && (a.reschedule_requested_at ? (
-          <Notice kind="info">We got your request for a different time and will get back to you with a new one.</Notice>
+          <Notice kind="info">{t("We got your request for a different time and will get back to you with a new one.")}</Notice>
         ) : (
           <details className="rounded-[var(--radius-card)] border border-line bg-surface p-4">
-            <summary className="cursor-pointer text-center font-semibold text-brand">I need a different time</summary>
+            <summary className="cursor-pointer text-center font-semibold text-brand">{t("I need a different time")}</summary>
             <form action={requestRescheduleByTokenAction.bind(null, token)} className="mt-3 space-y-2">
               <label className="block text-sm">
-                <span className="font-medium">Which days and times work for you?</span>
-                <textarea name="note" rows={3} placeholder="e.g. Any morning next week, or Saturday after 1pm"
+                <span className="font-medium">{t("Which days and times work for you?")}</span>
+                <textarea name="note" rows={3} placeholder={t("e.g. Any morning next week, or Saturday after 1pm")}
                   className="mt-1 block w-full rounded-xl border border-line px-3 py-2" />
               </label>
-              <Button type="submit" className="w-full">Ask for a new time</Button>
+              <Button type="submit" className="w-full">{t("Ask for a new time")}</Button>
             </form>
           </details>
         ))}
         {open && a.upcoming && (
           <details className="rounded-[var(--radius-card)] border border-line bg-surface p-4">
-            <summary className="cursor-pointer text-center font-semibold text-danger">I need to cancel</summary>
+            <summary className="cursor-pointer text-center font-semibold text-danger">{t("I need to cancel")}</summary>
             <form action={cancelByTokenAction.bind(null, token)} className="mt-3 space-y-2">
               {a.can_cancel ? (
-                <p className="text-sm text-muted">Cancelling now is free. Your time will be given to someone else.</p>
+                <p className="text-sm text-muted">{t("Cancelling now is free. Your time will be given to someone else.")}</p>
               ) : (
                 <Notice kind="warn">
-                  Your cleaning is less than {a.cancellation_hours} hours away, so this is a late cancellation and a fee may
-                  apply. If something came up, please call or text us at {phone}.
+                  {t("Your cleaning is less than {hours} hours away, so this is a late cancellation and a fee may apply. If something came up, please call or text us at {phone}.", { hours: a.cancellation_hours, phone })}
                 </Notice>
               )}
               <Button type="submit" kind="danger" className="w-full">
-                Yes, cancel it
+                {t("Yes, cancel it")}
               </Button>
             </form>
           </details>
         )}
         {(a.status === "cancelled" || a.status === "declined") && (
           <ButtonLink href={bookingUrl(a)} className="w-full rounded-full py-4 text-lg">
-            Book a new time
+            {t("Book a new time")}
           </ButtonLink>
         )}
         {a.phone && (
           <p className="text-center text-sm text-muted">
-            Questions? Text{" "}
+            {t("Questions? Text")}{" "}
             <a className="underline" href={`sms:${a.phone}`}>
               {phone}
             </a>

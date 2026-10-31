@@ -1,6 +1,7 @@
 "use client";
 import { MAX_EXTRA_QTY, type CatalogExtra } from "@/lib/pricing";
 import { money } from "@/lib/format";
+import { useT } from "@/components/i18n";
 
 const ICONS: Record<string, string> = {
   cabinet: "🗄️",
@@ -27,6 +28,7 @@ export function ExtrasGrid({
   qty: Record<string, number>;
   onChange: (id: string, n: number) => void;
 }) {
+  const { t } = useT();
   return (
     <ul className="grid grid-cols-3 gap-2">
       {extras.map((x) => {
@@ -48,10 +50,10 @@ export function ExtrasGrid({
               <div className={tile}>
                 {body}
                 <span className="mt-1 flex items-center gap-2">
-                  <button type="button" aria-label={`Fewer ${x.name}`} onClick={() => onChange(x.id, n - 1)}
+                  <button type="button" aria-label={t("Fewer {name}", { name: x.name })} onClick={() => onChange(x.id, n - 1)}
                     className="flex h-7 w-7 items-center justify-center rounded-full bg-navy font-bold text-white">−</button>
                   <span className="w-5 font-bold tabular-nums" aria-live="polite">{n}</span>
-                  <button type="button" aria-label={`More ${x.name}`} onClick={() => onChange(x.id, Math.min(n + 1, MAX_EXTRA_QTY))}
+                  <button type="button" aria-label={t("More {name}", { name: x.name })} onClick={() => onChange(x.id, Math.min(n + 1, MAX_EXTRA_QTY))}
                     className="flex h-7 w-7 items-center justify-center rounded-full bg-navy font-bold text-white">+</button>
                 </span>
               </div>
