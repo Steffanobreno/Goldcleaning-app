@@ -128,16 +128,22 @@ ${header}
 }
 
 export async function sendEmail({
-  to, subject, text, fromName, details, extras,
-}: { to: string; subject: string; text: string; fromName: string; details?: EmailDetails | null; extras?: EmailExtras | null }) {
+  to, subject, text, fromName, details, extras, attachments = [],
+}: {
+  to: string; subject: string; text: string; fromName: string; details?: EmailDetails | null; extras?: EmailExtras | null;
+  attachments?: { filename: string; content: Buffer; contentType: string }[];
+}) {
   const t = getTransport();
   if (!t) throw new Error("Email is not set up (GMAIL_USER / GMAIL_APP_PASSWORD).");
   await t.sendMail({
     from: { name: fromName, address: process.env.GMAIL_USER!.trim() }, to, subject, text, html: emailHtml(text, fromName, details, extras),
     // Gmail and Apple Mail show the attached visit with an "Add to calendar" option.
-    attachments: details?.calendar
-      ? [{ filename: "gold-cleaning.ics", content: details.calendar.ics, contentType: "text/calendar; charset=utf-8; method=PUBLISH" }]
-      : undefined,
+    attachments: [
+      ...(details?.calendar
+        ? [{ filename: "gold-cleaning.ics", content: details.calendar.ics, contentType: "text/calendar; charset=utf-8; method=PUBLISH" }]
+        : []),
+      ...attachments,
+    ],
   });
 }
 

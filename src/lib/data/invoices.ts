@@ -32,7 +32,7 @@ export { PAYMENT_METHODS, methodLabel } from "../payment-methods";
 
 export async function getInvoiceForAppointment(staff: StaffContext, appointmentId: string) {
   const [invoice] = await sql<(InvoiceRow & { number: string })[]>`
-    select *, upper(substr(replace(id::text, '-', ''), 1, 8)) as number
+    select *, receipt_no::text as number
     from invoices where appointment_id = ${appointmentId} and business_id = ${staff.businessId}`;
   if (!invoice) return null;
   const items = await sql<{ id: string; kind: string; description: string; amount_cents: number }[]>`

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireStaff, type StaffContext } from "@/lib/auth";
 import { isExclusionViolation, sql } from "@/lib/db";
+import type { TransactionSql } from "postgres";
 import { addDaysYmd, hm, isYmd, timeLabel, todayYmd, weekdayOf, ymd, zonedToUtc } from "@/lib/format";
 import { workingHoursFor } from "@/lib/data/appointments";
 import { insertAppointment } from "@/lib/data/appointment-write";
@@ -11,6 +12,8 @@ import { agreedQuote, FREQUENCIES, quote, withDiscounts, type Frequency, type Ho
 import { activeDiscounts, homeStanding, recordUse } from "@/lib/data/discounts";
 import { recalcInvoice } from "@/lib/data/invoices";
 import { notifyAppointment } from "@/lib/messaging";
+import { emailReceipt } from "@/lib/receipt-email";
+import { inBackground } from "@/lib/background";
 import { NEXT_STATUS } from "@/lib/appointment-status";
 import { PAYMENT_METHODS } from "@/lib/payment-methods";
 import { seriesForFrequency } from "@/lib/repeat";
@@ -147,7 +150,10 @@ export async function setStatusAction(appointmentId: string, status: string) {
       update appointments set status = ${status},
         confirmed_at = case when ${status} = 'confirmed' then now() else confirmed_at end,
         cancelled_at = case when ${status} in ('cancelled', 'no_show') then now() else null end,
-        checked_in_at = case when ${status} = 'in_progress' then coalesce(checked_in_at, now()) else checked_in_at end,
+        -- Finished without a check-in: it started at the booked time (or now, if that's still ahead).
+        checked_in_at = case when ${status} = 'in_progress' then coalesce(checked_in_at, now())
+                             when ${status} = 'completed' then coalesce(checked_in_at, least(start_at, now()))
+                             else checked_in_at end,
         checked_out_at = case when ${status} = 'completed' then coalesce(checked_out_at, now())
                               when ${status} = 'in_progress' then null else checked_out_at end
       where id = ${appointmentId} and business_id = ${staff.businessId}`;
@@ -231,22 +237,31 @@ async function openInvoice(staff: StaffContext, appointmentId: string) {
     if (!appt) throw new Error("Appointment not found");
     const [inv] = await tx`insert into invoices (business_id, appointment_id, client_id)
                            values (${staff.businessId}, ${appointmentId}, ${appt.client_id}) returning id`;
-    await tx`
-      insert into invoice_items (invoice_id, kind, description, amount_cents)
-      select ${inv.id},
-             case l.kind when 'extra' then 'addon'
-                         when 'adjustment' then (case when l.price_cents < 0 then 'discount' else 'fee' end)
-                         when 'rate' then (case when l.price_cents < 0 then 'discount' else 'fee' end)
-                         when 'discount' then 'discount' when 'coupon' then 'discount'
-                         else 'service' end,
-             l.name || case when l.qty > 1 then ' × ' || l.qty else '' end, l.price_cents
-      from appointment_homes ah
-      join appointment_lines l on l.appointment_home_id = ah.id
-      where ah.appointment_id = ${appointmentId}
-      order by l.created_at, l.id`;
-    await recalcInvoice(tx, inv.id);
+    await syncInvoiceServices(tx, appointmentId, inv.id);
     return inv.id as string;
   });
+}
+
+/**
+ * Puts the visit's price lines on its bill (again), keeping the discounts, charges and taxes
+ * added by hand and the payments. Called when the bill is made and whenever the visit is re-priced.
+ */
+async function syncInvoiceServices(tx: TransactionSql, appointmentId: string, invoiceId: string) {
+  await tx`delete from invoice_items where invoice_id = ${invoiceId} and (from_visit or kind in ('service', 'addon'))`;
+  await tx`
+    insert into invoice_items (invoice_id, kind, description, amount_cents, from_visit)
+    select ${invoiceId},
+           case l.kind when 'extra' then 'addon'
+                       when 'adjustment' then (case when l.price_cents < 0 then 'discount' else 'fee' end)
+                       when 'rate' then (case when l.price_cents < 0 then 'discount' else 'fee' end)
+                       when 'discount' then 'discount' when 'coupon' then 'discount'
+                       else 'service' end,
+           l.name || case when l.qty > 1 then ' × ' || l.qty else '' end, l.price_cents, true
+    from appointment_homes ah
+    join appointment_lines l on l.appointment_home_id = ah.id
+    where ah.appointment_id = ${appointmentId}
+    order by l.created_at, l.id`;
+  await recalcInvoice(tx, invoiceId);
 }
 
 export async function startCheckoutAction(appointmentId: string) {
@@ -350,10 +365,44 @@ export async function recordPaymentAction(appointmentId: string, _: FormState, f
                checked_in_at = coalesce(checked_in_at, start_at)
              where id = ${appointmentId} and business_id = ${staff.businessId} and status <> 'completed'`;
   });
+  await emailReceiptWhenClosed(staff, appointmentId);
   revalidatePath(`/appointments/${appointmentId}`);
   revalidatePath(`/appointments/${appointmentId}/checkout`);
   revalidatePath("/today");
   return undefined;
+}
+
+/** Once an order is finished (paid in full), the client gets the receipt by email, once, after the screen answers. */
+async function emailReceiptWhenClosed(staff: StaffContext, appointmentId: string) {
+  const [inv] = await sql`select id from invoices
+                          where appointment_id = ${appointmentId} and business_id = ${staff.businessId} and status = 'closed'`;
+  if (inv) await inBackground(() => emailReceipt(staff.businessId, inv.id, { onlyOnce: true }));
+}
+
+/** "Email receipt" on a finished order: sends it now (again, if asked). */
+export async function emailReceiptAction(appointmentId: string) {
+  const staff = await requireStaff();
+  const [inv] = await sql`select id from invoices where appointment_id = ${appointmentId} and business_id = ${staff.businessId}`;
+  const result = inv ? await emailReceipt(staff.businessId, inv.id) : "failed";
+  revalidatePath(`/appointments/${appointmentId}/checkout`);
+  redirect(`/appointments/${appointmentId}/checkout?receipt=${result}`);
+}
+
+/** Finishes the order when nothing is left to collect (a free visit, or paid in full already). */
+export async function closeInvoiceAction(appointmentId: string) {
+  const staff = await requireStaff();
+  await sql.begin(async (tx) => {
+    await tx`update invoices set status = 'closed', closed_at = now()
+             where appointment_id = ${appointmentId} and business_id = ${staff.businessId}
+               and status = 'open' and paid_cents >= total_cents`;
+    await tx`update appointments set status = 'completed', checked_out_at = coalesce(checked_out_at, now()),
+               checked_in_at = coalesce(checked_in_at, start_at)
+             where id = ${appointmentId} and business_id = ${staff.businessId} and status <> 'completed'`;
+  });
+  await emailReceiptWhenClosed(staff, appointmentId);
+  revalidatePath(`/appointments/${appointmentId}`);
+  revalidatePath(`/appointments/${appointmentId}/checkout`);
+  revalidatePath("/today");
 }
 
 export async function reopenInvoiceAction(appointmentId: string) {
@@ -378,8 +427,7 @@ export async function saveLinesAction(appointmentId: string, _: FormState, form:
     where a.id = ${appointmentId} and a.business_id = ${staff.businessId}
     order by ah.created_at limit 1`;
   if (!appt) return { error: "Appointment not found." };
-  const [inv] = await sql`select id from invoices where appointment_id = ${appointmentId}`;
-  if (inv) return { error: "Checkout already started. Change prices on the bill instead." };
+  const [inv] = await sql`select id from invoices where appointment_id = ${appointmentId} and business_id = ${staff.businessId}`;
   const frequency = String(form.get("frequency") ?? "one_time") as Frequency;
   if (!FREQUENCIES.includes(frequency)) return { error: "Choose how often." };
   const q = await priceForm(staff.businessId, form, { bedrooms: appt.bedrooms, fullBaths: appt.full_baths, halfBaths: appt.half_baths }, frequency);
@@ -411,12 +459,18 @@ export async function saveLinesAction(appointmentId: string, _: FormState, form:
       }
       await tx`update appointments set end_at = ${endAt}, service_id = ${q.service.id}, frequency = ${frequency}
                where id = ${appointmentId}`;
+      // Works at and after checkout: the bill follows, and a paid bill opens again if it now asks for more.
+      if (inv) {
+        await syncInvoiceServices(tx, appointmentId, inv.id);
+        await tx`update invoices set status = 'open', closed_at = null where id = ${inv.id} and paid_cents < total_cents`;
+      }
     });
   } catch (e) {
     if (isExclusionViolation(e)) return { error: "With that length it runs into another online booking. Shorten it or move one visit." };
     throw e;
   }
   revalidatePath(`/appointments/${appointmentId}`);
+  revalidatePath(`/appointments/${appointmentId}/checkout`);
   revalidatePath("/today");
   revalidatePath("/calendar");
   const warning = await overlapWarning(asGroomer(staff, appt.staff_id), appt.start_at, endAt, appointmentId);

@@ -18,7 +18,7 @@ export default async function EditPricePage({ params }: PageProps<"/appointments
   const [appt, catalog, [invoice], discounts] = await Promise.all([
     getAppointment(staff, id),
     loadCatalog(staff.businessId),
-    sql`select id from invoices where appointment_id = ${id} and business_id = ${staff.businessId}`,
+    sql<{ status: string }[]>`select status from invoices where appointment_id = ${id} and business_id = ${staff.businessId}`,
     activeDiscounts(staff.businessId),
   ]);
   if (!appt || !appt.home) notFound();
@@ -37,10 +37,14 @@ export default async function EditPricePage({ params }: PageProps<"/appointments
     <>
       <PageHeader title="Edit price" back={`/appointments/${id}`} />
       <Page>
-        {invoice ? (
-          <Notice kind="info">Checkout already started for this visit. Change prices on the bill instead.</Notice>
-        ) : (
-          <>
+        {invoice && (
+          <Notice kind="info">
+            {invoice.status === "closed"
+              ? "This visit is paid. If the new total is higher, the bill opens again so you can collect the rest."
+              : "Changes update this visit's bill."}
+          </Notice>
+        )}
+        <>
             <Notice kind="info">Prices come from today&apos;s price list for this {home.label.toLowerCase()} ({home.bedrooms} bd / {home.full_baths} ba).</Notice>
             <BookingForm
               action={saveLinesAction.bind(null, id)}
@@ -65,8 +69,7 @@ export default async function EditPricePage({ params }: PageProps<"/appointments
                 baseMin: durationMinutes({ bedrooms: home.bedrooms, fullBaths: home.full_baths, halfBaths: home.half_baths }, catalog.rule),
               }}
             />
-          </>
-        )}
+        </>
       </Page>
     </>
   );

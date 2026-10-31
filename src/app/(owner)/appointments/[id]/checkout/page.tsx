@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireStaff } from "@/lib/auth";
 import { getAppointment } from "@/lib/data/appointments";
@@ -9,21 +10,26 @@ import { dayLabel, money, timeLabel } from "@/lib/format";
 import { Button, Input, Notice, Page, PageHeader } from "@/components/ui";
 import {
   addInvoiceItemAction,
+  closeInvoiceAction,
+  emailReceiptAction,
   recordPaymentAction,
   removeInvoiceItemAction,
   reopenInvoiceAction,
   saveVisitTimesAction,
   startCheckoutAction, deletePaymentAction } from "../../actions";
 import { PaymentForm } from "../../payment-form";
+import { getReceipt } from "@/lib/data/receipts";
+import { ReceiptActions } from "@/components/receipt-actions";
 
 export const metadata: Metadata = { title: "Invoice" };
 
 // The bill of one visit: check-in and check-out times, the price lines, discounts, service
 // charges or taxes, tips, what was paid and what is still due.
 
-export default async function CheckoutPage({ params }: PageProps<"/appointments/[id]/checkout">) {
+export default async function CheckoutPage({ params, searchParams }: PageProps<"/appointments/[id]/checkout">) {
   const staff = await requireStaff();
   const { id } = await params;
+  const sp = await searchParams;
   const appt = await getAppointment(staff, id);
   if (!appt) notFound();
   const data = await getInvoiceForAppointment(staff, id);
@@ -43,6 +49,7 @@ export default async function CheckoutPage({ params }: PageProps<"/appointments/
   }
 
   const { invoice, items, payments } = data;
+  const receipt = invoice.status === "closed" ? await getReceipt({ invoiceId: invoice.id, businessId: staff.businessId }) : null;
   const open = invoice.status === "open";
   const balance = Math.max(invoice.total_cents - invoice.paid_cents, 0);
   const services = items.filter((i) => !["discount", "tax", "fee"].includes(i.kind));
@@ -54,9 +61,16 @@ export default async function CheckoutPage({ params }: PageProps<"/appointments/
 
   return (
     <>
-      <PageHeader title={`Invoice #${invoice.number}`} back={`/appointments/${id}`} />
+      <PageHeader title={open ? "Finish order" : `Receipt #${invoice.number}`} back={`/appointments/${id}`} />
       <Page>
-        {!open && <Notice kind="success">Paid in full. Thank you!</Notice>}
+        {!open && <Notice kind="success">Order finished · Paid in full. Thank you!</Notice>}
+        {open && (
+          <ol className="grid grid-cols-3 gap-1 text-center text-xs font-semibold" aria-label="Steps">
+            <li className="rounded-full bg-success-soft py-1.5 text-success">1 · Price</li>
+            <li className={`rounded-full py-1.5 ${balance > 0 ? "bg-brand text-white" : "bg-success-soft text-success"}`}>2 · Payment</li>
+            <li className="rounded-full bg-bg py-1.5 text-muted">3 · Receipt</li>
+          </ol>
+        )}
 
         <details className="card px-4 py-3">
           <summary className="flex cursor-pointer list-none items-center justify-between text-sm">
@@ -77,6 +91,10 @@ export default async function CheckoutPage({ params }: PageProps<"/appointments/
           </form>
         </details>
 
+        <div className="flex items-center justify-between px-1">
+          <h2 className="section-label">Price</h2>
+          <Link href={`/appointments/${id}/services`} className="text-sm font-semibold text-brand">Edit price &amp; extras</Link>
+        </div>
         <section className="card divide-y divide-line">
           {services.length > 0 && (
             <div className="px-4 py-3">
@@ -127,10 +145,24 @@ export default async function CheckoutPage({ params }: PageProps<"/appointments/
         </section>
 
         {open && balance > 0 && (
-          <section className="card px-4 py-5">
-            <PaymentForm action={recordPaymentAction.bind(null, id)} balanceCents={balance}
-              serviceCents={serviceAfterDiscount} clientName={fullName(appt.client)} />
+          <section className="space-y-2" aria-label="Collect payment">
+            <h2 className="section-label px-1">Collect payment</h2>
+            <div className="card px-4 py-5">
+              <PaymentForm action={recordPaymentAction.bind(null, id)} balanceCents={balance}
+                serviceCents={serviceAfterDiscount} clientName={fullName(appt.client)} />
+            </div>
+            <Link href={`/appointments/${id}`} className="block py-2 text-center text-sm font-semibold text-muted">
+              The client will pay later (leave it unpaid)
+            </Link>
           </section>
+        )}
+
+        {open && balance === 0 && (
+          <form action={closeInvoiceAction.bind(null, id)}>
+            <Button type="submit" className="w-full py-3.5 text-base">
+              {invoice.total_cents === 0 ? "Finish order (nothing to charge)" : "Finish order"}
+            </Button>
+          </form>
         )}
 
         {payments.length > 0 && (
@@ -161,6 +193,10 @@ export default async function CheckoutPage({ params }: PageProps<"/appointments/
               ))}
             </ul>
           </section>
+        )}
+
+        {!open && receipt && (
+          <ReceiptActions r={receipt} emailAction={emailReceiptAction.bind(null, id)} result={typeof sp.receipt === "string" ? sp.receipt : undefined} />
         )}
 
         {!open && (

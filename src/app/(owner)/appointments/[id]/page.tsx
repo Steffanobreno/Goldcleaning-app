@@ -29,7 +29,7 @@ const PRIMARY: Record<string, { to: string; label: string } | undefined> = {
   unconfirmed: { to: "en_route", label: "I'm on the way" },
   confirmed: { to: "en_route", label: "I'm on the way" },
   en_route: { to: "in_progress", label: "Check in" },
-  in_progress: { to: "completed", label: "Finish and check out" },
+  in_progress: { to: "completed", label: "Finish order" },
 };
 
 const TRIGGER_LABEL: Record<string, string> = {
@@ -87,6 +87,8 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
   const rebookDays = { weekly: 7, biweekly: 14, every_4_weeks: 28, one_time: 28 }[appt.frequency];
   const nextDate = addDaysYmd(ymd(appt.start_at, tz), rebookDays);
   const canChange = !closed && appt.status !== "completed";
+  // Price and services can change until the visit is cancelled, even after checkout (the bill follows).
+  const canEditPrice = !closed;
   const canMove = ["requested", "unconfirmed", "confirmed"].includes(appt.status); // not once on the way
   const pillar = "flex flex-col items-center gap-1.5 rounded-2xl px-1 py-3 text-xs font-semibold text-brand hover:bg-brand-soft";
 
@@ -164,7 +166,7 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
             <span className={`${pillar} opacity-40`}><Pin size={22} />No address</span>
           )}
           {canMove && <a href="#reschedule" className={pillar}><Calendar size={22} />Reschedule</a>}
-          {canChange && <Link href={`/appointments/${id}/services`} className={pillar}><Pencil size={22} />Edit price</Link>}
+          {canEditPrice && <Link href={`/appointments/${id}/services`} className={pillar}><Pencil size={22} />Edit price</Link>}
           <Link href={`/appointments/new?client=${c.id}&date=${nextDate}&time=${hm(appt.start_at, tz)}`} className={pillar}>
             <Plus size={22} />Book again
           </Link>
@@ -230,7 +232,7 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <h2 className="section-label">Home and price</h2>
-            {canChange && <Link href={`/appointments/${id}/services`} className="text-sm font-semibold text-brand">Edit</Link>}
+            {canEditPrice && <Link href={`/appointments/${id}/services`} className="text-sm font-semibold text-brand">Edit</Link>}
           </div>
           <div className="card divide-y divide-line">
             {home && (
@@ -334,22 +336,32 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
         <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-10 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur">
           <div className="mx-auto max-w-3xl">
             {primary ? (
-              <form action={setStatusAction.bind(null, id, primary.to)}>
-                <button type="submit" className={`w-full rounded-2xl py-3.5 text-base font-bold text-white ${primary.to === "in_progress" ? "bg-success" : "bg-brand"}`}>
-                  {primary.label}
-                </button>
-              </form>
+              <div className="flex gap-2">
+                <form action={setStatusAction.bind(null, id, primary.to)} className="flex-1">
+                  <button type="submit" className={`w-full rounded-2xl py-3.5 text-base font-bold text-white ${primary.to === "in_progress" ? "bg-success" : "bg-brand"}`}>
+                    {primary.label}
+                  </button>
+                </form>
+                {/* Forgot "on the way" or the check-in: finish the order straight away. */}
+                {NEXT_STATUS[appt.status]?.includes("completed") && primary.to !== "completed" && (
+                  <form action={setStatusAction.bind(null, id, "completed")}>
+                    <button type="submit" className="h-full rounded-2xl border-2 border-danger px-4 text-sm font-bold text-danger">
+                      Finish order
+                    </button>
+                  </form>
+                )}
+              </div>
             ) : paid ? (
               <Link href={`/appointments/${id}/checkout`} className="block w-full rounded-2xl bg-success py-3.5 text-center text-base font-bold text-white">
-                See receipt
+                Order finished · See receipt
               </Link>
             ) : checkout ? (
               <Link href={`/appointments/${id}/checkout`} className="block w-full rounded-2xl bg-danger py-3.5 text-center text-base font-bold text-white">
-                Charge now {money(Math.max(checkout.invoice.total_cents - checkout.invoice.paid_cents, 0))}
+                Collect payment {money(Math.max(checkout.invoice.total_cents - checkout.invoice.paid_cents, 0))}
               </Link>
             ) : (
               <form action={startCheckoutAction.bind(null, id)}>
-                <button type="submit" className="w-full rounded-2xl bg-danger py-3.5 text-base font-bold text-white">Charge now {money(total)}</button>
+                <button type="submit" className="w-full rounded-2xl bg-danger py-3.5 text-base font-bold text-white">Collect payment {money(total)}</button>
               </form>
             )}
           </div>
@@ -370,6 +382,9 @@ const TAKES_OFF: Record<string, string> = {
 const MENU_NAME: Record<string, string> = {
   "unconfirmed>confirmed": "Client confirmed",
   "confirmed>unconfirmed": "Client hasn't confirmed",
+  "unconfirmed>completed": "Finish order (skip the steps)",
+  "confirmed>completed": "Finish order (skip the steps)",
+  "en_route>completed": "Finish order (skip check-in)",
 };
 
 // Names in the status menu, as the cleaner says them.
