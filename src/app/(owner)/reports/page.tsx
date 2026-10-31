@@ -2,40 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireStaff } from "@/lib/auth";
 import { report, type Group } from "@/lib/data/reports";
-import { addDaysYmd, isYmd, money, todayYmd, weekdayOf } from "@/lib/format";
+import { PERIODS, reportPeriod } from "@/lib/report-period";
+import { money, todayYmd } from "@/lib/format";
 import { methodLabel } from "@/lib/payment-methods";
 import { Button, Page, PageHeader } from "@/components/ui";
 import { DateField } from "@/components/date-field";
 
 export const metadata: Metadata = { title: "Reports" };
-
-const PERIODS = [
-  { key: "today", label: "Today" },
-  { key: "week", label: "This week" },
-  { key: "month", label: "This month" },
-  { key: "last30", label: "Last 30 days" },
-  { key: "year", label: "This year" },
-] as const;
-
-/** First and last day (yyyy-MM-dd) of a preset period around `today`. */
-function presetRange(key: string, today: string): [string, string] {
-  const [y, m] = today.split("-").map(Number);
-  const lastOfMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  switch (key) {
-    case "week": {
-      const monday = addDaysYmd(today, -((weekdayOf(today) + 6) % 7));
-      return [monday, addDaysYmd(monday, 6)];
-    }
-    case "month":
-      return [`${today.slice(0, 7)}-01`, `${today.slice(0, 7)}-${String(lastOfMonth).padStart(2, "0")}`];
-    case "last30":
-      return [addDaysYmd(today, -29), today];
-    case "year":
-      return [`${y}-01-01`, `${y}-12-31`];
-    default:
-      return [today, today];
-  }
-}
 
 const utc = (d: string) => new Date(`${d}T12:00:00Z`);
 const fmt = (d: string, o: Intl.DateTimeFormatOptions) => utc(d).toLocaleDateString("en-US", { timeZone: "UTC", ...o });
@@ -43,20 +16,13 @@ const bucketLabel = (d: string, g: Group) =>
   g === "day" ? fmt(d, { weekday: "short", month: "short", day: "numeric" })
     : g === "week" ? `Week of ${fmt(d, { month: "short", day: "numeric" })}`
       : fmt(d, { month: "long", year: "numeric" });
-const days = (from: string, to: string) => Math.round((utc(to).getTime() - utc(from).getTime()) / 86_400_000) + 1;
 
 export default async function ReportsPage({ searchParams }: PageProps<"/reports">) {
   const staff = await requireStaff();
   const sp = await searchParams;
   const today = todayYmd(staff.timezone);
-  const custom = isYmd(sp.from) && isYmd(sp.to) && sp.from <= sp.to;
-  const period = custom ? "custom" : PERIODS.some((p) => p.key === sp.period) ? String(sp.period) : "month";
-  const [from, to] = custom ? [sp.from as string, sp.to as string] : presetRange(period, today);
-  const length = days(from, to);
-  const group: Group = sp.group === "day" || sp.group === "week" || sp.group === "month"
-    ? sp.group : length <= 31 ? "day" : length <= 120 ? "week" : "month";
+  const { from, to, period, length, group, rangeQuery } = reportPeriod(sp, today);
   const r = await report(staff, from, to, group);
-  const rangeQuery = custom ? `from=${from}&to=${to}` : `period=${period}`;
   const maxBucket = Math.max(1, ...r.buckets.map((b) => Math.max(b.expected, b.collected)));
   const maxMethod = Math.max(1, ...r.methods.map((m) => m.amount + m.tips));
   const avg = r.appts ? Math.round(r.expected / r.appts) : 0;
@@ -84,6 +50,10 @@ export default async function ReportsPage({ searchParams }: PageProps<"/reports"
           </label>
           <Button type="submit" kind="secondary">Show</Button>
         </form>
+        <div className="flex gap-2" aria-label="Download this report">
+          <a href={`/reports/export?${rangeQuery}&group=${group}&format=pdf`} className="flex-1 rounded-full border-2 border-navy py-2 text-center text-sm font-bold text-navy">Download PDF</a>
+          <a href={`/reports/export?${rangeQuery}&group=${group}&format=csv`} className="flex-1 rounded-full border-2 border-navy py-2 text-center text-sm font-bold text-navy">Download Excel (CSV)</a>
+        </div>
         <p className="px-1 text-sm text-muted">
           {from === to ? fmt(from, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
             : `${fmt(from, { month: "short", day: "numeric", year: "numeric" })} – ${fmt(to, { month: "short", day: "numeric", year: "numeric" })}`}
