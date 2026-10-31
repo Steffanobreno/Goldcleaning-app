@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireStaff } from "@/lib/auth";
 import { sql } from "@/lib/db";
-import { emailConfigured } from "@/lib/email";
+import { emailConfigured, emailSender } from "@/lib/email";
 import { TestEmailButton } from "./test-email";
 import { Button, Card, Field, Input, Notice, Page, PageHeader, Textarea } from "@/components/ui";
 import { saveDeliveryAction, saveMessagingSettingsAction, saveTemplateAction, setAutoMessagesAction } from "../actions";
@@ -62,7 +62,10 @@ export default async function MessagesSettingsPage() {
           <h2 className="font-bold">Email</h2>
           {emailConfigured() ? (
             <>
-              <Notice kind="success">Email is on. Messages go out from {process.env.GMAIL_USER}.</Notice>
+              <Notice kind="success">
+                Email is on. Messages go out from {emailSender()}
+                {process.env.RESEND_API_KEY ? " (through Resend)" : " (through Gmail)"}.
+              </Notice>
               <TestEmailButton />
             </>
           ) : (

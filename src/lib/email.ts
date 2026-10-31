@@ -1,12 +1,51 @@
 import "server-only";
 import nodemailer, { type Transporter } from "nodemailer";
 
-// Sends through the business Gmail account with an App Password (free, about 500/day).
-// Set GMAIL_USER and GMAIL_APP_PASSWORD. Without them, email is simply not sent.
+// Two ways to send, picked by what is set on the server:
+// - Resend (RESEND_API_KEY + EMAIL_FROM, an address on the business's own domain): lands in the
+//   inbox more often, 3,000 a month free. Replies go to GMAIL_USER when it is set.
+// - Gmail with an App Password (GMAIL_USER + GMAIL_APP_PASSWORD): free, about 500 a day.
+// Without either, email is simply not sent.
 
 let transport: Transporter | null = null;
 
-export const emailConfigured = () => !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+const resendOn = () => !!(process.env.RESEND_API_KEY && process.env.EMAIL_FROM);
+const gmailOn = () => !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+export const emailConfigured = () => resendOn() || gmailOn();
+/** The address clients see emails from, for the settings page. */
+export const emailSender = () => (resendOn() ? process.env.EMAIL_FROM!.trim() : process.env.GMAIL_USER?.trim() ?? null);
+
+type Mail = {
+  to: string; subject: string; text: string; html: string; headers?: Record<string, string>;
+  attachments?: { filename: string; content: Buffer | string; contentType: string }[];
+};
+
+// Tests point this at a local fake.
+const resendUrl = (path: string) => `${(process.env.RESEND_API_URL ?? "https://api.resend.com").replace(/\/$/, "")}${path}`;
+
+const resendBody = (fromName: string, m: Mail) => ({
+  from: `${fromName.replace(/[<>"]/g, "")} <${process.env.EMAIL_FROM!.trim()}>`,
+  to: [m.to],
+  subject: m.subject,
+  text: m.text,
+  html: m.html,
+  ...(process.env.GMAIL_USER ? { reply_to: process.env.GMAIL_USER.trim() } : {}),
+  ...(m.headers ? { headers: m.headers } : {}),
+  ...(m.attachments?.length
+    ? { attachments: m.attachments.map((a) => ({ filename: a.filename, content: Buffer.from(a.content).toString("base64"), content_type: a.contentType })) }
+    : {}),
+});
+
+async function resendPost(path: string, body: unknown) {
+  const res = await fetch(resendUrl(path), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY!.trim()}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`Resend refused it (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  return res.json();
+}
 
 // Gmail; SMTP_HOST / SMTP_PORT point the tests at a local mail catcher instead.
 function smtpServer() {
@@ -15,7 +54,7 @@ function smtpServer() {
 }
 
 function getTransport() {
-  if (!emailConfigured()) return null;
+  if (!gmailOn()) return null;
   transport ??= nodemailer.createTransport({
     ...smtpServer(),
     // Google shows app passwords as "abcd efgh ijkl mnop"; pasted with the spaces (or a stray
@@ -133,10 +172,8 @@ export async function sendEmail({
   to: string; subject: string; text: string; fromName: string; details?: EmailDetails | null; extras?: EmailExtras | null;
   attachments?: { filename: string; content: Buffer; contentType: string }[];
 }) {
-  const t = getTransport();
-  if (!t) throw new Error("Email is not set up (GMAIL_USER / GMAIL_APP_PASSWORD).");
-  await t.sendMail({
-    from: { name: fromName, address: process.env.GMAIL_USER!.trim() }, to, subject, text, html: emailHtml(text, fromName, details, extras),
+  const mail: Mail = {
+    to, subject, text, html: emailHtml(text, fromName, details, extras),
     // Gmail and Apple Mail show the attached visit with an "Add to calendar" option.
     attachments: [
       ...(details?.calendar
@@ -144,7 +181,14 @@ export async function sendEmail({
         : []),
       ...attachments,
     ],
-  });
+  };
+  if (resendOn()) {
+    await resendPost("/emails", resendBody(fromName, mail));
+    return;
+  }
+  const t = getTransport();
+  if (!t) throw new Error("Email is not set up (RESEND_API_KEY + EMAIL_FROM, or GMAIL_USER + GMAIL_APP_PASSWORD).");
+  await t.sendMail({ from: { name: fromName, address: process.env.GMAIL_USER!.trim() }, ...mail });
 }
 
 /**
@@ -155,7 +199,21 @@ export async function sendMany(
   fromName: string,
   mails: { to: string; subject: string; text: string; html: string; headers?: Record<string, string> }[],
 ) {
-  if (!emailConfigured()) throw new Error("Email is not set up (GMAIL_USER / GMAIL_APP_PASSWORD).");
+  if (!emailConfigured()) throw new Error("Email is not set up (RESEND_API_KEY + EMAIL_FROM, or GMAIL_USER + GMAIL_APP_PASSWORD).");
+  if (resendOn()) {
+    // Up to 100 per request; one failed request marks its whole group as failed.
+    const out: (string | null)[] = [];
+    for (let i = 0; i < mails.length; i += 100) {
+      const group = mails.slice(i, i + 100);
+      try {
+        await resendPost("/emails/batch", group.map((m) => resendBody(fromName, m)));
+        out.push(...group.map(() => null));
+      } catch (e) {
+        out.push(...group.map(() => String((e as Error).message).slice(0, 500)));
+      }
+    }
+    return out;
+  }
   const pool = nodemailer.createTransport({
     pool: true,
     maxConnections: 1,

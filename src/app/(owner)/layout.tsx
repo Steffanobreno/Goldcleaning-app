@@ -3,6 +3,7 @@ import { sql } from "@/lib/db";
 import { TabBar } from "@/components/tab-bar";
 import { SideMenu } from "@/components/side-menu";
 import { AppLock } from "@/components/app-lock";
+import { OfflineSupport } from "@/components/offline-support";
 
 export default async function OwnerLayout({ children }: LayoutProps<"/">) {
   const staff = await requireStaff();
@@ -14,6 +15,7 @@ export default async function OwnerLayout({ children }: LayoutProps<"/">) {
   const [lock] = await sql<{ on: boolean }[]>`select pin_hash is not null as on from staff where id = ${staff.staffId}`;
   return (
     <>
+      <OfflineSupport />
       {lock?.on && <AppLock />}
       {children}
       <TabBar />

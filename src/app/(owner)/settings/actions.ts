@@ -270,7 +270,7 @@ export async function setAutoMessagesAction(on: boolean) {
 export async function sendTestEmailAction(): Promise<FormState & { sentTo?: string }> {
   const staff = await requireStaff();
   const [b] = await sql`select name, email from businesses where id = ${staff.businessId}`;
-  const to = b?.email || process.env.GMAIL_USER;
+  const to = b?.email || process.env.GMAIL_USER || process.env.EMAIL_FROM;
   if (!to) return { error: "Add your email above first." };
   const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
   try {
@@ -281,7 +281,7 @@ export async function sendTestEmailAction(): Promise<FormState & { sentTo?: stri
       fromName: b.name,
     });
   } catch (e) {
-    return { error: `Gmail refused it: ${(e as Error).message}. Check GMAIL_USER and GMAIL_APP_PASSWORD on Netlify.` };
+    return { error: `The email didn't go out: ${(e as Error).message}. Check the email settings on Netlify (RESEND_API_KEY and EMAIL_FROM, or GMAIL_USER and GMAIL_APP_PASSWORD).` };
   }
   return { saved: true, sentTo: to };
 }

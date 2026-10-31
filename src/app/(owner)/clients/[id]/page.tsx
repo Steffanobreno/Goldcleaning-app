@@ -85,7 +85,10 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <h2 className="section-label">Appointments</h2>
-            <ButtonLink kind="ghost" href={`/appointments/new?client=${id}`}>+ New appointment</ButtonLink>
+            <span className="flex gap-1">
+              <ButtonLink kind="ghost" href={`/waitlist/new?client=${id}`}>+ Waitlist</ButtonLink>
+              <ButtonLink kind="ghost" href={`/appointments/new?client=${id}`}>+ New appointment</ButtonLink>
+            </span>
           </div>
           {upcoming[0] && (
             <Link href={`/appointments/${upcoming[0].id}`} className="block rounded-2xl bg-success-soft px-4 py-3">

@@ -8,6 +8,7 @@ import { directionsUrl, routeUrl } from "@/lib/directions";
 import { addDaysYmd, isYmd, longDayLabel, money, timeLabel, todayYmd, zonedToUtc } from "@/lib/format";
 import { ButtonLink, Empty, Notice, Page, PageHeader, StatusBadge } from "@/components/ui";
 import { closedDays } from "@/lib/data/closed";
+import { waitlistOpenings } from "@/lib/data/waitlist";
 import { DayNav } from "@/components/day-nav";
 import { Swipe } from "@/components/swipe";
 import { Chat, Phone, Pin } from "@/components/icons";
@@ -25,7 +26,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const tz = staff.timezone;
   const today = todayYmd(tz);
   const date = isYmd(sp.date) ? sp.date : today;
-  const [day, [{ requests, quotes }], groomers, closed] = await Promise.all([
+  const [day, [{ requests, quotes }], groomers, closed, openings] = await Promise.all([
     listDay(staff, date),
     sql<{ requests: number; quotes: number }[]>`
       select (select count(*)::int from appointments
@@ -33,6 +34,8 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
              (select count(*)::int from quote_requests where business_id = ${staff.businessId} and status = 'new') as quotes`,
     listGroomers(staff, { activeOnly: true }),
     closedDays(staff.businessId, date, date),
+    // Spots that opened for someone on the waitlist.
+    waitlistOpenings(staff),
   ]);
   // A route is one groomer's day: yours unless another one (or all) is picked.
   const groomer = sp.groomer === "all" ? null
@@ -71,6 +74,11 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
         {requests > 0 && (
           <ButtonLink href="/requests" kind="secondary" className="w-full border-warn bg-warn-soft text-warn">
             {requests} booking request{requests > 1 ? "s" : ""} waiting
+          </ButtonLink>
+        )}
+        {openings.length > 0 && (
+          <ButtonLink href="/waitlist" kind="secondary" className="w-full border-gold bg-gold-soft">
+            A spot opened for {new Set(openings.map((o) => o.entry_id)).size} on the waitlist
           </ButtonLink>
         )}
         {quotes > 0 && (

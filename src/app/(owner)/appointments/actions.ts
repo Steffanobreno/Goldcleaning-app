@@ -13,6 +13,7 @@ import { activeDiscounts, homeStanding, recordUse } from "@/lib/data/discounts";
 import { recalcInvoice } from "@/lib/data/invoices";
 import { notifyAppointment } from "@/lib/messaging";
 import { emailReceipt } from "@/lib/receipt-email";
+import { bookedFromWaitlist } from "@/lib/data/waitlist";
 import { inBackground } from "@/lib/background";
 import { NEXT_STATUS } from "@/lib/appointment-status";
 import { PAYMENT_METHODS } from "@/lib/payment-methods";
@@ -135,8 +136,10 @@ export async function createAppointmentAction(clientId: string, _: FormState, fo
     throw e;
   }
   if (form.get("notify") === "on") await notifyAppointment(id, "booked");
+  await bookedFromWaitlist(staff.businessId, clientId, date);
   revalidatePath("/today");
   revalidatePath("/calendar");
+  revalidatePath("/waitlist");
   redirect(`/appointments/${id}?booked=1`);
 }
 
