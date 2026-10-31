@@ -17,9 +17,37 @@ export type ClientValues = {
   state: string | null;
   zip: string | null;
   access_notes: string | null;
+  referral_source?: string | null;
+  tags?: string[];
 };
 
-export function ClientForm({ action, initial, submitLabel }: { action: Action; initial?: ClientValues; submitLabel: string }) {
+/** The owner's lists from Settings → Client lists. */
+export type ClientOptions = { tags: string[]; sources: string[] };
+
+/** Checkboxes shown as chips, for picking tags. Keeps values that left the list but are still set. */
+function ChipChecks({ name, legend, options, checked }: { name: string; legend: string; options: string[]; checked: string[] }) {
+  const all = [...options, ...checked.filter((c) => !options.includes(c))];
+  if (!all.length) return null;
+  return (
+    <fieldset>
+      <legend className="mb-1 text-sm font-medium">{legend}</legend>
+      <div className="flex flex-wrap gap-2">
+        {all.map((o) => (
+          <label key={o} className="cursor-pointer">
+            <input type="checkbox" name={name} value={o} defaultChecked={checked.includes(o)} className="peer sr-only" />
+            <span className="block rounded-full border border-line px-3 py-1.5 text-sm peer-checked:border-brand peer-checked:bg-brand-soft peer-checked:font-semibold peer-checked:text-brand-strong peer-focus-visible:ring-2 peer-focus-visible:ring-brand">
+              {o}
+            </span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+export function ClientForm({ action, initial, submitLabel, options }: {
+  action: Action; initial?: ClientValues; submitLabel: string; options: ClientOptions;
+}) {
   const [state, formAction, pending] = useActionState(action, undefined);
   return (
     <ActionForm action={formAction} className="space-y-4">
@@ -55,6 +83,15 @@ export function ClientForm({ action, initial, submitLabel }: { action: Action; i
       <Field label="Notes" hint="Anything about this client (best time to call, how they like to pay).">
         <Textarea name="access_notes" defaultValue={initial?.access_notes ?? ""} />
       </Field>
+      <Field label="How they found you">
+        <Select name="referral_source" defaultValue={initial?.referral_source ?? ""}>
+          <option value="">Not set</option>
+          {(initial?.referral_source && !options.sources.includes(initial.referral_source) ? [...options.sources, initial.referral_source] : options.sources).map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </Select>
+      </Field>
+      <ChipChecks name="tags" legend="Tags" options={options.tags} checked={initial?.tags ?? []} />
       <Button type="submit" className="w-full" disabled={pending}>
         {pending ? "Saving…" : submitLabel}
       </Button>

@@ -5,9 +5,10 @@ import { listRange, visitLabel, type AppointmentListItem } from "@/lib/data/appo
 import { listTimeOff, type TimeOff } from "@/lib/data/time-off";
 import { sql } from "@/lib/db";
 import { addDaysYmd, dayLabel, dayRangeUtc, hm, isYmd, money, timeLabel, todayYmd, weekdayOf, ymd, zonedToUtc } from "@/lib/format";
-import { ButtonLink, Page, PageHeader, StatusBadge } from "@/components/ui";
+import { ButtonLink, Notice, Page, PageHeader, StatusBadge } from "@/components/ui";
 import { DayNav } from "@/components/day-nav";
 import { Swipe } from "@/components/swipe";
+import { closedDays } from "@/lib/data/closed";
 import { SlotButton } from "./slot-button";
 import { YearView } from "./year-view";
 import { dayFill } from "@/lib/calendar-fill";
@@ -76,7 +77,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
 
   // ?groomer= shows one groomer's visits and blocks; without it, everyone's.
   const groomer = typeof sp.groomer === "string" && /^[0-9a-f-]{36}$/.test(sp.groomer) ? sp.groomer : null;
-  const [all, blocks, hours, groomers, yearRows] = await Promise.all([
+  const [all, blocks, hours, groomers, yearRows, closed] = await Promise.all([
     count ? listRange(staff, from, count) : [],
     count ? listTimeOff(staff, from, count, groomer) : [],
     sql<{ weekday: number; start: string; end: string }[]>`
@@ -90,6 +91,8 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
           where business_id = ${staff.businessId}
             and start_at >= ${dayRangeUtc(`${y}-01-01`, tz).start} and start_at < ${dayRangeUtc(`${y}-12-31`, tz).end}`
       : [],
+    // Vacations and holidays show as closed days.
+    closedDays(staff.businessId, view === "year" ? `${y}-01-01` : from, view === "year" ? `${y}-12-31` : addDaysYmd(from, Math.max(count, 1) - 1)),
   ]);
   const appts = groomer ? all.filter((a) => a.staff_id === groomer) : all;
   const multi = groomers.length > 1;
@@ -132,18 +135,19 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
 
         {(view === "day" || view === "agenda") && <WeekStrip date={date} today={today} view={view} q={q} />}
 
+        {view === "day" && closed.has(date) && <Notice kind="warn">Closed · {closed.get(date)}. Clients can&apos;t book online.</Notice>}
         {/* Every view turns a page with a sideways swipe, like the arrows. */}
         <Swipe prev={`${base}date=${shift(-1)}`} next={`${base}date=${shift(1)}`}>
           {view === "day" && <DayTimeline date={date} appts={onDay(date)} blocks={blocksOn(date)} hours={hoursOf(date)} tz={tz} multi={multi} groomer={groomer} />}
           {view === "week" && <WeekGrid start={monday(date)} today={today} appts={appts} blocksOn={blocksOn} hoursOf={hoursOf} tz={tz} />}
           {view === "month" && (
-            <MonthGrid start={gridStart} count={gridDays} month={date.slice(0, 7)} today={today} onDay={onDay} blocksOn={blocksOn} working={(d) => !!hoursOf(d)} />
+            <MonthGrid start={gridStart} count={gridDays} month={date.slice(0, 7)} today={today} onDay={onDay} blocksOn={blocksOn} working={(d) => !!hoursOf(d) && !closed.has(d)} />
           )}
           {view === "year" && (
-            <YearView year={y} today={today} working={(d) => !!hoursOf(d)}
+            <YearView year={y} today={today} working={(d) => !!hoursOf(d) && !closed.has(d)}
               fill={dayFill(groomer ? yearRows.filter((a) => a.staff_id === groomer) : yearRows, tz)} />
           )}
-          {view === "agenda" && <Agenda start={monday(date)} today={today} onDay={onDay} blocksOn={blocksOn} working={(d) => !!hoursOf(d)} tz={tz} />}
+          {view === "agenda" && <Agenda start={monday(date)} today={today} onDay={onDay} blocksOn={blocksOn} working={(d) => !!hoursOf(d) && !closed.has(d)} tz={tz} />}
         </Swipe>
       </Page>
     </>

@@ -6,7 +6,8 @@ import { listDay, visitLabel } from "@/lib/data/appointments";
 import { accessLabel } from "@/lib/home-options";
 import { directionsUrl, routeUrl } from "@/lib/directions";
 import { addDaysYmd, isYmd, longDayLabel, money, timeLabel, todayYmd, zonedToUtc } from "@/lib/format";
-import { ButtonLink, Empty, Page, PageHeader, StatusBadge } from "@/components/ui";
+import { ButtonLink, Empty, Notice, Page, PageHeader, StatusBadge } from "@/components/ui";
+import { closedDays } from "@/lib/data/closed";
 import { DayNav } from "@/components/day-nav";
 import { Swipe } from "@/components/swipe";
 import { Chat, Phone, Pin } from "@/components/icons";
@@ -24,13 +25,14 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const tz = staff.timezone;
   const today = todayYmd(tz);
   const date = isYmd(sp.date) ? sp.date : today;
-  const [day, [{ requests, quotes }], groomers] = await Promise.all([
+  const [day, [{ requests, quotes }], groomers, closed] = await Promise.all([
     listDay(staff, date),
     sql<{ requests: number; quotes: number }[]>`
       select (select count(*)::int from appointments
               where business_id = ${staff.businessId} and status = 'requested' and start_at > now()) as requests,
              (select count(*)::int from quote_requests where business_id = ${staff.businessId} and status = 'new') as quotes`,
     listGroomers(staff, { activeOnly: true }),
+    closedDays(staff.businessId, date, date),
   ]);
   // A route is one groomer's day: yours unless another one (or all) is picked.
   const groomer = sp.groomer === "all" ? null
@@ -65,6 +67,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
         action={<ButtonLink href={`/appointments/new?date=${date}`}>Book</ButtonLink>}
       />
       <Page>
+        {closed.has(date) && <Notice kind="warn">Closed · {closed.get(date)}. Clients can&apos;t book online.</Notice>}
         {requests > 0 && (
           <ButtonLink href="/requests" kind="secondary" className="w-full border-warn bg-warn-soft text-warn">
             {requests} booking request{requests > 1 ? "s" : ""} waiting

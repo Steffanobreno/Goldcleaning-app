@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireStaff } from "@/lib/auth";
+import { clientTagsFor } from "@/lib/data/options";
+import { TagChips } from "@/components/chips";
 import { clientHistory, clientSummary, fullAddress, fullName, getClient, listClientNotes } from "@/lib/data/clients";
 import { accessLabel, homeSizeLabel, listHomes } from "@/lib/data/homes";
 import { FREQUENCY_LABEL } from "@/lib/pricing";
@@ -20,13 +22,14 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
   const { id } = await params;
   if (!isUuid(id)) notFound();
   // Everything at once: each round trip to the database adds a little wait.
-  const [client, homes, notes, history, agreement, summary] = await Promise.all([
+  const [client, homes, notes, history, agreement, summary, tags] = await Promise.all([
     getClient(staff, id),
     listHomes(staff, id),
     listClientNotes(staff, id),
     clientHistory(staff, id),
     activeAgreement(staff.businessId),
     clientSummary(staff, id),
+    clientTagsFor([id]),
   ]);
   if (!client) notFound();
   const signature = agreement ? await currentSignature(agreement, id) : null;
@@ -119,6 +122,18 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
               <>
                 <dt className="text-muted">Notes</dt>
                 <dd className="whitespace-pre-line">{client.access_notes}</dd>
+              </>
+            )}
+            {(tags.get(id)?.length ?? 0) > 0 && (
+              <>
+                <dt className="text-muted">Tags</dt>
+                <dd><TagChips tags={tags.get(id)} /></dd>
+              </>
+            )}
+            {client.referral_source && (
+              <>
+                <dt className="text-muted">Found you</dt>
+                <dd>{client.referral_source}</dd>
               </>
             )}
             <dt className="text-muted">Client since</dt>

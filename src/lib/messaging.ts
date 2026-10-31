@@ -25,6 +25,7 @@ export type Trigger =
   | "request_accepted"
   | "request_declined"
   | "reminder"
+  | "reminder_2"
   | "confirmed"
   | "cancelled"
   | "rebook"
@@ -70,6 +71,8 @@ type ApptContext = {
   first_name: string;
   phone: string;
   email: string | null;
+  arrival_before_min: number;
+  arrival_after_min: number;
   can_email: boolean; // has an email and messages aren't blocked on their profile
   service: string | null; // "Regular Clean"
   home: string | null; // "3 bd / 2 ba"
@@ -86,6 +89,7 @@ async function appointmentContext(appointmentId: string) {
   const [row] = await sql<ApptContext[]>`
     select a.id, a.business_id, a.start_at, a.status, a.public_token, a.source,
            b.name as business_name, b.phone as business_phone, b.timezone, b.website_url, b.review_url,
+           b.arrival_before_min, b.arrival_after_min,
            c.id as client_id, c.first_name, c.phone, c.email,
            (c.email is not null and c.sms_opted_out_at is null) as can_email,
            sv.name as service,
@@ -103,6 +107,13 @@ async function appointmentContext(appointmentId: string) {
   return row ?? null;
 }
 
+/** "10:00 AM", or with an arrival window "10:00 AM – 10:45 AM". */
+export function arrivalTime(start: Date, tz: string, before: number, after: number) {
+  const at = (d: Date) => formatInTimeZone(d, tz, "h:mm a");
+  if (!before && !after) return at(start);
+  return `${at(new Date(start.getTime() - before * 60_000))} – ${at(new Date(start.getTime() + after * 60_000))}`;
+}
+
 export const bookingUrl = (b: { website_url: string | null }) => b.website_url ?? `${appUrl()}/book`;
 export const appointmentLink = (token: string) => `${appUrl()}/a/${token}`;
 
@@ -115,7 +126,7 @@ function varsFor(c: ApptContext, extra: Record<string, string | number> = {}) {
     home: c.home ?? "",
     total: money(c.total_cents),
     date: formatInTimeZone(c.start_at, c.timezone, "EEE, MMM d"),
-    time: formatInTimeZone(c.start_at, c.timezone, "h:mm a"),
+    time: arrivalTime(c.start_at, c.timezone, c.arrival_before_min ?? 0, c.arrival_after_min ?? 0),
     appointment_url: c.public_token ? appointmentLink(c.public_token) : bookingUrl(c),
     booking_url: bookingUrl(c),
     review_url: c.review_url ?? "",
@@ -192,9 +203,10 @@ export async function queueDueMessages(businessId: string) {
   const today = todayYmd(tz);
   const nowLocal = hm(new Date(), tz);
 
-  // 1. Appointment reminders, N days before, from the set time of day.
-  const reminder = await template(businessId, "reminder");
-  if (reminder && nowLocal >= (reminder.send_at_time ?? "00:00")) {
+  // 1. Appointment reminders (the first and the second), N days before, from the set time of day.
+  for (const trigger of ["reminder", "reminder_2"] as const) {
+    const reminder = await template(businessId, trigger);
+    if (!reminder || nowLocal < (reminder.send_at_time ?? "00:00")) continue;
     const { start, end } = dayRangeUtc(addDaysYmd(today, reminder.offset_days ?? 1), tz);
     const statuses = reminder.only_if_unconfirmed ? ["unconfirmed"] : ["unconfirmed", "confirmed"];
     const due = await sql<{ id: string }[]>`
@@ -203,7 +215,7 @@ export async function queueDueMessages(businessId: string) {
         and (${on} or source = 'online')`;
     for (const a of due) {
       const c = await appointmentContext(a.id);
-      if (c) await enqueue(c, "reminder", reminder, `reminder:${c.id}:${c.start_at.getTime()}`);
+      if (c) await enqueue(c, trigger, reminder, `${trigger}:${c.id}:${c.start_at.getTime()}`);
     }
   }
 
@@ -262,6 +274,7 @@ const HEADINGS: Partial<Record<Trigger, string>> = {
   request_accepted: "You're confirmed!",
   booked: "You're booked!",
   reminder: "Your next visit",
+  reminder_2: "See you soon",
   confirmed: "Confirmed",
   cancelled: "Cancelled visit",
   request_declined: "Your request",
@@ -274,8 +287,10 @@ export async function emailDetails(appointmentId: string, trigger: Trigger): Pro
   if (!heading) return null;
   const [a] = await sql<{ start_at: Date; end_at: Date; status: string; address_line: string | null; public_token: string;
                          timezone: string; phone: string | null; cancellation_hours: number; total: number;
+                         arrival_before_min: number; arrival_after_min: number;
                          lines: { name: string; qty: number; price_cents: number }[] }[]>`
     select a.start_at, a.end_at, a.status, a.address_line, a.public_token, b.timezone, b.phone, b.cancellation_hours,
+      b.arrival_before_min, b.arrival_after_min,
       coalesce((select sum(l.price_cents) from appointment_homes ah join appointment_lines l on l.appointment_home_id = ah.id
                 where ah.appointment_id = a.id), 0)::int as total,
       coalesce((select json_agg(json_build_object('name', l.name, 'qty', l.qty, 'price_cents', l.price_cents) order by l.created_at, l.id)
@@ -284,16 +299,16 @@ export async function emailDetails(appointmentId: string, trigger: Trigger): Pro
     from appointments a join businesses b on b.id = a.business_id where a.id = ${appointmentId}`;
   if (!a) return null;
   const live = !["cancelled", "declined", "no_show"].includes(a.status);
-  const calendar = ["booked", "request_accepted", "confirmed", "reminder"].includes(trigger) ? await clientEvent({ id: appointmentId }) : null;
+  const calendar = ["booked", "request_accepted", "confirmed", "reminder", "reminder_2"].includes(trigger) ? await clientEvent({ id: appointmentId }) : null;
   return {
     heading,
     badge:
       trigger === "request_received" || a.status === "requested"
         ? "Waiting for confirmation"
-        : ["booked", "reminder"].includes(trigger) && a.status === "unconfirmed"
+        : ["booked", "reminder", "reminder_2"].includes(trigger) && a.status === "unconfirmed"
           ? "Please confirm"
           : null,
-    when: `${formatInTimeZone(a.start_at, a.timezone, "EEEE, MMMM d")} · ${formatInTimeZone(a.start_at, a.timezone, "h:mm a")}`,
+    when: `${formatInTimeZone(a.start_at, a.timezone, "EEEE, MMMM d")} · ${arrivalTime(a.start_at, a.timezone, a.arrival_before_min, a.arrival_after_min)}`,
     address: a.address_line,
     lines: a.lines.map((l) => ({ name: l.qty > 1 ? `${l.name} × ${l.qty}` : l.name, price: money(l.price_cents) })),
     total: a.total ? money(a.total) : "",

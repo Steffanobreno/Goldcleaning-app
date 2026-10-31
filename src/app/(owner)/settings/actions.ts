@@ -223,6 +223,18 @@ export async function saveTemplateAction(templateId: string, _: FormState, form:
   return { saved: true };
 }
 
+export async function saveDeliveryAction(_: FormState, form: FormData): Promise<FormState> {
+  const staff = await requireStaff();
+  const before = Number(form.get("arrival_before_min"));
+  const after = Number(form.get("arrival_after_min"));
+  if (![before, after].every((n) => Number.isInteger(n) && n >= 0 && n <= 240)) return { error: "The arrival window is 0 to 240 minutes each way." };
+  await sql`update businesses set arrival_before_min = ${before}, arrival_after_min = ${after},
+              receipt_email_enabled = ${form.get("receipt_email_enabled") === "on"}
+            where id = ${staff.businessId}`;
+  revalidatePath("/settings/messages");
+  return { saved: true };
+}
+
 export async function newDeviceKeyAction() {
   const staff = await requireStaff();
   await sql`update businesses set device_key = encode(gen_random_bytes(24), 'hex') where id = ${staff.businessId}`;

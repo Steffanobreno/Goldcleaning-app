@@ -1,5 +1,6 @@
 import "server-only";
 import { sql } from "./db";
+import { closedDays } from "./data/closed";
 import { addDaysYmd, dayRangeUtc, todayYmd } from "./format";
 import { serviceAreaProblem } from "./service-area";
 import { openSlots, type DaySlots, type SlotDef } from "./slots";
@@ -50,7 +51,7 @@ export async function findSlots(b: PublicBusiness, durationMin: number, onlyDate
   const rangeStart = dayRangeUtc(firstDay, tz).start;
   const rangeEnd = dayRangeUtc(addDaysYmd(firstDay, days - 1), tz).end;
 
-  const [slots, busy, timeOff] = await Promise.all([
+  const [slots, busy, timeOff, closed] = await Promise.all([
     sql<SlotDef[]>`
       select weekday, to_char(start_time, 'HH24:MI') as start, label from booking_slots where business_id = ${b.id}`,
     sql<{ start_at: Date; end_at: Date }[]>`
@@ -58,8 +59,10 @@ export async function findSlots(b: PublicBusiness, durationMin: number, onlyDate
       where business_id = ${b.id} and status = any(${ACTIVE}) and start_at < ${rangeEnd} and end_at > ${rangeStart}`,
     sql<{ start_at: Date; end_at: Date }[]>`
       select start_at, end_at from time_off where staff_id = ${b.staff_id} and start_at < ${rangeEnd} and end_at > ${rangeStart}`,
+    // Vacations and holidays (Settings → Closed dates and holidays): no online bookings those days.
+    closedDays(b.id, firstDay, addDaysYmd(firstDay, days - 1)),
   ]);
-  return openSlots({
+  const open = openSlots({
     firstDay,
     days,
     tz,
@@ -68,4 +71,5 @@ export async function findSlots(b: PublicBusiness, durationMin: number, onlyDate
     busy: [...busy, ...timeOff].map((x) => ({ start: x.start_at, end: x.end_at })),
     earliest: new Date(Date.now() + b.min_notice_hours * 3600_000),
   });
+  return open.filter((d) => !closed.has(d.date));
 }

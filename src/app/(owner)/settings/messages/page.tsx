@@ -5,7 +5,7 @@ import { sql } from "@/lib/db";
 import { emailConfigured } from "@/lib/email";
 import { TestEmailButton } from "./test-email";
 import { Button, Card, Field, Input, Notice, Page, PageHeader, Textarea } from "@/components/ui";
-import { saveMessagingSettingsAction, saveTemplateAction, setAutoMessagesAction } from "../actions";
+import { saveDeliveryAction, saveMessagingSettingsAction, saveTemplateAction, setAutoMessagesAction } from "../actions";
 import { SimpleForm } from "../forms";
 
 export const metadata: Metadata = { title: "Email messages" };
@@ -15,7 +15,8 @@ const TEMPLATE_INFO: Record<string, { title: string; when: string }> = {
   request_received: { title: "Request received", when: "When a client sends a request online" },
   request_accepted: { title: "Request accepted", when: "When you accept an online request" },
   request_declined: { title: "Request declined", when: "When you decline an online request" },
-  reminder: { title: "Appointment reminder", when: "Days before the visit, at a set time" },
+  reminder: { title: "1st reminder", when: "Days before the visit, at a set time" },
+  reminder_2: { title: "2nd reminder", when: "Another reminder closer to the visit (like the day before)" },
   confirmed: { title: "Confirmed", when: "When the client taps Confirm on their link" },
   cancelled: { title: "Cancelled", when: "When the visit is cancelled" },
   rebook: { title: "Time to rebook", when: "When the booked frequency has passed (4 weeks after a one-time cleaning), at a set time" },
@@ -27,7 +28,7 @@ const ORDER = Object.keys(TEMPLATE_INFO);
 
 export default async function MessagesSettingsPage() {
   const staff = await requireStaff();
-  const [b] = await sql`select email, phone, review_url, website_url, auto_messages_enabled from businesses where id = ${staff.businessId}`;
+  const [b] = await sql`select email, phone, review_url, website_url, auto_messages_enabled, arrival_before_min, arrival_after_min, receipt_email_enabled from businesses where id = ${staff.businessId}`;
   const templates = await sql<
     { id: string; trigger: string; body: string; email_subject: string | null; enabled: boolean;
       offset_days: number | null; offset_minutes: number | null; send_at_time: string | null }[]
@@ -80,6 +81,28 @@ export default async function MessagesSettingsPage() {
           </SimpleForm>
         </Card>
 
+        <Card className="space-y-3">
+          <h2 className="font-bold">Arrival window and receipts</h2>
+          <SimpleForm action={saveDeliveryAction}>
+            <p className="text-sm text-muted">
+              A cleaning team can&apos;t promise the minute. With 0 before and 45 after, a 9:00 AM visit reads
+              “9:00 AM – 9:45 AM” in the emails.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Minutes before">
+                <Input name="arrival_before_min" type="number" min={0} max={240} step={5} defaultValue={b.arrival_before_min} />
+              </Field>
+              <Field label="Minutes after">
+                <Input name="arrival_after_min" type="number" min={0} max={240} step={5} defaultValue={b.arrival_after_min} />
+              </Field>
+            </div>
+            <label className="flex items-center gap-3 text-sm">
+              <input type="checkbox" name="receipt_email_enabled" defaultChecked={b.receipt_email_enabled} className="h-4 w-4" />
+              Email the receipt when a cleaning is paid in full
+            </label>
+          </SimpleForm>
+        </Card>
+
         <section className="space-y-2">
           <div className="flex items-center justify-between px-1">
             <h2 className="font-bold">Message texts</h2>
@@ -105,12 +128,12 @@ export default async function MessagesSettingsPage() {
                       <input type="checkbox" name="enabled" defaultChecked={t.enabled} className="h-4 w-4" />
                       Send this message
                     </label>
-                    {t.trigger === "reminder" && (
+                    {(t.trigger === "reminder" || t.trigger === "reminder_2") && (
                       <Field label="Days before the visit">
                         <Input name="offset_days" type="number" min={0} max={14} defaultValue={t.offset_days ?? 2} />
                       </Field>
                     )}
-                    {(t.trigger === "reminder" || t.trigger === "rebook") && (
+                    {(t.trigger === "reminder" || t.trigger === "reminder_2" || t.trigger === "rebook") && (
                       <Field label="Send at">
                         <Input name="send_at_time" type="time" defaultValue={t.send_at_time ?? "10:00"} />
                       </Field>
