@@ -156,8 +156,10 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
 
 function WeekStrip({ date, today, view, q }: { date: string; today: string; view: View; q: string }) {
   const start = monday(date);
+  const week = (n: number) => `/calendar?view=${view}&date=${addDaysYmd(date, n * 7)}${q}`;
+  // Swipe sideways for the week before or after.
   return (
-    <div className="grid grid-cols-7 text-center">
+    <Swipe prev={week(-1)} next={week(1)} className="grid grid-cols-7 text-center">
       {Array.from({ length: 7 }, (_, i) => addDaysYmd(start, i)).map((d) => (
         <Link key={d} href={`/calendar?view=${view}&date=${d}${q}`} aria-current={d === date ? "date" : undefined} className="flex flex-col items-center gap-1 py-1">
           <span className="text-xs font-semibold text-muted">{fmt(d, { weekday: "narrow" })}</span>
@@ -167,7 +169,7 @@ function WeekStrip({ date, today, view, q }: { date: string; today: string; view
           </span>
         </Link>
       ))}
-    </div>
+    </Swipe>
   );
 }
 
