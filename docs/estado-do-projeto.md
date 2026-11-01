@@ -15,7 +15,7 @@ Atualizado em 01/11/2026.
 - Comunicação com o cliente **só por e-mail**; ligação e mensagem de texto são feitas à mão.
 - Não falar de máquina de pressão nem de organização de despensa como serviço do site (o cliente pergunta por e-mail).
 - A string de conexão do banco (Neon) nunca vai em conversa, e `.env.local` nunca entra no Git.
-- Publicar o app (empurrar `main` para `production`, que o Netlify publica) e juntar PR do site só com autorização de quem pediu.
+- **Sempre pedir autorização antes de publicar** o app (empurrar `main` para `production`, que o Netlify publica) e antes de juntar PR do site: o plano tem limite de deploys. Autorização vale para aquele envio só. Trabalhar e commitar na `main` não gera deploy.
 - Endereço postal dos e-mails: 1201 Monte Diablo Ave, San Mateo, CA 94401.
 
 ## Preços (tabela única, igual no app e em `src/data/pricing.ts` do site)
