@@ -6,6 +6,7 @@
 // Usage: DATABASE_URL=... node tests/e2e/repeat.mjs [baseUrl]
 import { chromium } from "playwright";
 import postgres from "postgres";
+import { readFileSync, existsSync } from "node:fs";
 
 const BASE = process.argv[2] ?? "http://localhost:3000";
 const sql = postgres(process.env.DATABASE_URL ?? "postgres://postgres@localhost:5499/goldcleaning", { max: 1 });
@@ -66,6 +67,23 @@ await page.waitForURL(/\/appointments\/[0-9a-f-]+\?accepted=1/);
 await page.getByText(/Request accepted, and \d+ more cleanings? booked in the series/).waitFor();
 await page.getByText(/Already taken, so not booked: /).waitFor();
 step("accepted: the series is booked and the taken date is reported");
+
+// The emails to Rita: "repeating cleaning" while the request waits, and her next dates once it is accepted.
+const mailLog = process.env.MAIL_LOG ?? "test-results/mails.jsonl";
+const ritaMails = async (needle) => {
+  for (let i = 0; i < 20; i++) {
+    const mails = existsSync(mailLog) ? readFileSync(mailLog, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+    const hit = mails.find((m) => m.to === "rita@example.com" && m.html.includes(needle));
+    if (hit) return hit;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return null;
+};
+if (!(await ritaMails("This is a repeating cleaning (every 2 weeks)"))) fail("the request email should say the cleaning repeats");
+const next = await ritaMails("Your next cleanings (every 2 weeks)");
+if (!next) fail("the accepted email should list her next cleanings");
+if ((next.html.match(/&bull;|•/g) ?? []).length < 2) fail("the accepted email should list two next dates");
+step("emails: the request says it repeats; the accepted one lists her next two cleanings");
 
 const rows = await sql`
   select a.start_at, a.status,

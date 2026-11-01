@@ -8,6 +8,7 @@ import { clientEvent } from "./client-calendar";
 import { lastSentByTemplate, processCampaigns } from "./data/marketing";
 import { nextDate, suggestions } from "./marketing-templates";
 import { addDaysYmd, dayRangeUtc, hm, money, phoneLabel, todayYmd, ymd } from "./format";
+import { FREQUENCY_LABEL, type Frequency } from "./pricing";
 import { renderTemplate } from "./messaging-render";
 
 // Every client message goes through here, by email only (calls and texts are made by hand from
@@ -134,6 +135,36 @@ function varsFor(c: ApptContext, extra: Record<string, string | number> = {}) {
   };
 }
 
+/**
+ * For a visit that repeats: "Your next cleanings" with the next two dates, so the client can plan (booked
+ * and accepted emails); a request that is still waiting says the dates follow once it is confirmed.
+ */
+async function seriesNote(c: ApptContext, trigger: Trigger) {
+  if (!c.id || !["booked", "request_accepted", "request_received"].includes(trigger)) return "";
+  const [a] = await sql<{ series_id: string | null; frequency: string }[]>`select series_id, frequency from appointments where id = ${c.id}`;
+  if (!a || a.frequency === "one_time") return "";
+  const every = FREQUENCY_LABEL[a.frequency as Frequency]?.toLowerCase() ?? "";
+  if (trigger === "request_received") {
+    return `\n\nThis is a repeating cleaning (${every}). Once we confirm your first visit, we'll email you your next dates.`;
+  }
+  if (!a.series_id) return "";
+  const next = await sql<{ start_at: Date }[]>`
+    select start_at from appointments
+    where series_id = ${a.series_id} and id <> ${c.id} and start_at > ${c.start_at} and status in ('unconfirmed', 'confirmed')
+    order by start_at limit 2`;
+  if (!next.length) return "";
+  const when = (d: Date) => `${formatInTimeZone(d, c.timezone, "EEEE, MMM d")} · ${arrivalTime(d, c.timezone, c.arrival_before_min ?? 0, c.arrival_after_min ?? 0)}`;
+  return `\n\nYour next cleanings (${every}):\n${next.map((d) => `• ${when(d.start_at)}`).join("\n")}\n` +
+    `A date doesn't work? Just call or text us at ${phoneLabel(c.business_phone)} and we'll move that one.`;
+}
+
+/** Puts the note before the closing line (the business name and phone), when the message ends with one. */
+function withNote(body: string, note: string, business: string) {
+  if (!note) return body;
+  const cut = body.lastIndexOf("\n\n");
+  return cut > 0 && body.slice(cut).includes(business) ? body.slice(0, cut) + note + body.slice(cut) : body + note;
+}
+
 /** Creates the email row for one message, when the client can get one. */
 async function enqueue(c: ApptContext, trigger: Trigger, t: Template, dedupe: string, extra?: Record<string, string | number>) {
   if (!c.can_email) return;
@@ -142,7 +173,7 @@ async function enqueue(c: ApptContext, trigger: Trigger, t: Template, dedupe: st
     insert into messages (business_id, client_id, appointment_id, direction, channel, to_email, subject, body,
                           template_trigger, status, dedupe_key)
     values (${c.business_id}, ${c.client_id}, ${c.id}, 'out', 'email', ${c.email}, ${render(t.email_subject ?? c.business_name, vars)},
-            ${render(t.body, vars)}, ${trigger}, 'queued', ${`${dedupe}:email`})
+            ${withNote(render(t.body, vars), await seriesNote(c, trigger), c.business_name)}, ${trigger}, 'queued', ${`${dedupe}:email`})
     on conflict (dedupe_key) do nothing`;
 }
 

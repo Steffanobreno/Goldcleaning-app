@@ -204,7 +204,8 @@ export async function setStatusAction(appointmentId: string, status: string) {
   // with the link to see or change it; the reminder follows as for any visit.
   if (status === "cancelled") await notifyAppointment(appointmentId, "cancelled");
   if (status === "declined") await notifyAppointment(appointmentId, "request_declined");
-  if (accepted) await notifyAppointment(appointmentId, "request_accepted");
+  // A repeating request is told after its next cleanings are booked (below), so the email can list the dates.
+  if (accepted && !seriesForFrequency(appt.frequency)) await notifyAppointment(appointmentId, "request_accepted");
   revalidatePath(`/appointments/${appointmentId}`);
   revalidatePath("/today");
   revalidatePath("/calendar");
@@ -220,6 +221,7 @@ export async function setStatusAction(appointmentId: string, status: string) {
     const [b] = await sql`select booking_days_ahead from businesses where id = ${staff.businessId}`;
     const until = addDaysYmd(todayYmd(staff.timezone), b.booking_days_ahead);
     const r = await bookSeries(staff, appointmentId, { freq: repeat.freq, every: repeat.interval, count: null, until }, "confirmed");
+    await notifyAppointment(appointmentId, "request_accepted");
     const q = "error" in r ? "" : `&repeat=${r.created}${r.skipped.length ? `&taken=${r.skipped.map((x) => x.date).join(",")}` : ""}`;
     redirect(`/appointments/${appointmentId}?accepted=1${q}`);
   }
