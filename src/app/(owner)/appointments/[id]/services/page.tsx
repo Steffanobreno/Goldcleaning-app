@@ -61,6 +61,7 @@ export default async function EditPricePage({ params }: PageProps<"/appointments
                 frequency: appt.frequency,
                 qty,
                 adjustCents,
+                totalCents: appt.total_cents,
                 durationMin,
                 agreedCents: catalog.services.find((s) => s.id === appt.service_id)?.pricing === "quote"
                   ? (appt.lines.find((l) => l.kind === "service")?.price_cents ?? null)

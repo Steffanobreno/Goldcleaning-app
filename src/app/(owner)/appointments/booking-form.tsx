@@ -15,6 +15,7 @@ export type EditValues = {
   frequency: Frequency;
   qty: Record<string, number>;
   adjustCents: number;
+  totalCents: number; // what the visit costs now (shown again as the price typed, when it was set by hand)
   durationMin: number;
   baseMin: number;
   agreedCents: number | null; // a quote-only service: the price agreed by hand
@@ -61,7 +62,7 @@ export function BookingForm({
   const [qty, setQty] = useState<Record<string, number>>(edit?.qty ?? {});
   const [time, setTime] = useState(defaultTime);
   const [extraMin, setExtraMin] = useState(edit ? edit.durationMin - edit.baseMin : 0); // the owner's change to the estimate
-  const [adjust, setAdjust] = useState(edit?.adjustCents ? (edit.adjustCents / 100).toFixed(2) : "");
+  const [finalPrice, setFinalPrice] = useState(edit?.adjustCents ? (edit.totalCents / 100).toFixed(2) : "");
   const [couponId, setCouponId] = useState(edit?.couponId ?? "");
 
   const home = homes.find((h) => h.id === homeId);
@@ -77,12 +78,15 @@ export function BookingForm({
           extras: Object.entries(qty).filter(([, n]) => n > 0).map(([id, n]) => ({ serviceId: id, qty: n })),
         });
   const priced = q && !("error" in q) ? q : null;
-  const adjustCents = Math.round((Number(adjust.replace(/[$,\s]/g, "")) || 0) * 100);
   // The home's standing price and the visit's discount are added to the cleaning's lines (not for an agreed price).
   const stand = !agreed ? standing[homeId] : undefined;
   const coupon = discounts.find((d) => d.id === couponId) ?? null;
   const lines = priced ? withDiscounts(priced.lines, { adjustCents: stand?.adjustCents, adjustNote: stand?.note, standing: stand?.discounts, coupon }) : [];
-  const total = totalCents(lines) + adjustCents;
+  // A price typed by hand replaces the price list for this visit; the difference shows as one line.
+  const typedPrice = finalPrice.replace(/[$,\s]/g, "");
+  const listTotal = totalCents(lines);
+  const adjustCents = typedPrice !== "" && Number.isFinite(Number(typedPrice)) ? Math.round(Number(typedPrice) * 100) - listTotal : 0;
+  const total = listTotal + adjustCents;
   const visitMin = Math.max((priced?.durationMin ?? 0) + extraMin, 30);
 
   return (
@@ -217,8 +221,8 @@ export function BookingForm({
           </Select>
         </Field>
       )}
-      <Field label="Price adjustment ($, optional)" hint="Only for this visit. A negative amount is a discount, like -20. For a home that always pays a different price, set it on the home.">
-        <Input name="adjustment" inputMode="decimal" value={adjust} onChange={(e) => setAdjust(e.target.value)} placeholder="0.00" />
+      <Field label="Price for this visit ($, optional)" hint={`Type the price you agreed with the client: it replaces the price list ${money(listTotal)} for this visit only. Leave it empty to use the price list. For a home that always pays a different price, set it on the home.`}>
+        <Input name="final_price" inputMode="decimal" value={finalPrice} onChange={(e) => setFinalPrice(e.target.value)} placeholder={(listTotal / 100).toFixed(2)} />
       </Field>
       {!edit && (
         <Field label="Notes for this cleaning (optional)">
@@ -235,7 +239,7 @@ export function BookingForm({
         ))}
         {adjustCents !== 0 && (
           <div className="flex justify-between px-4 py-2 text-sm">
-            <span>Adjustment</span>
+            <span>{adjustCents < 0 ? "Discount (price set by you)" : "Adjustment (price set by you)"}</span>
             <span className="tabular-nums">{money(adjustCents)}</span>
           </div>
         )}

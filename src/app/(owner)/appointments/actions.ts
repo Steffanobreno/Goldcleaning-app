@@ -8,7 +8,7 @@ import { addDaysYmd, hm, isYmd, timeLabel, todayYmd, weekdayOf, ymd, zonedToUtc 
 import { workingHoursFor } from "@/lib/data/appointments";
 import { insertAppointment } from "@/lib/data/appointment-write";
 import { loadCatalog } from "@/lib/data/catalog";
-import { agreedQuote, FREQUENCIES, quote, withDiscounts, type Frequency, type HomeSize, type PriceLine } from "@/lib/pricing";
+import { agreedQuote, FREQUENCIES, quote, totalCents, withDiscounts, type Frequency, type HomeSize, type PriceLine } from "@/lib/pricing";
 import { activeDiscounts, homeStanding, recordUse } from "@/lib/data/discounts";
 import { recalcInvoice } from "@/lib/data/invoices";
 import { notifyAppointment } from "@/lib/messaging";
@@ -69,6 +69,25 @@ async function overlapWarning(staff: StaffContext, start: Date, end: Date, exclu
   return block ? `This overlaps blocked time${block.reason ? ` (${block.reason})` : ""} at ${timeLabel(block.start_at, staff.timezone)}.` : null;
 }
 
+/**
+ * The price typed on the form. "final_price" is the price agreed for this visit: the difference to the price
+ * list becomes one adjustment line, so the visit's total is exactly what was typed. (An older form sent
+ * "adjustment", an amount added to the list price.) Returns the adjustment in cents, 0 for none.
+ */
+function priceAdjustment(form: FormData, lines: PriceLine[]): { cents: number } | { error: string } {
+  const clean = (k: string) => String(form.get(k) ?? "").replace(/[$,\s]/g, "");
+  const final = clean("final_price");
+  if (final !== "") {
+    const f = Math.round(Number(final) * 100);
+    if (!Number.isFinite(f) || f < 0 || f > 1_000_000) return { error: "Check the price for this visit." };
+    return { cents: f - totalCents(lines) };
+  }
+  const adjust = clean("adjustment");
+  const cents = adjust === "" ? 0 : Math.round(Number(adjust) * 100);
+  if (!Number.isFinite(cents) || Math.abs(cents) > 1_000_000) return { error: "Check the price adjustment." };
+  return { cents };
+}
+
 export async function createAppointmentAction(clientId: string, _: FormState, form: FormData): Promise<FormState> {
   const staff = await requireStaff();
   const date = String(form.get("date") ?? "");
@@ -94,12 +113,9 @@ export async function createAppointmentAction(clientId: string, _: FormState, fo
   const lines: PriceLine[] = withDiscounts(q.lines, {
     adjustCents: standing?.adjustCents, adjustNote: standing?.adjustNote, standing: standing?.discounts, coupon,
   });
-  const adjust = String(form.get("adjustment") ?? "").replace(/[$,\s]/g, "");
-  if (adjust !== "") {
-    const cents = Math.round(Number(adjust) * 100);
-    if (!Number.isFinite(cents) || Math.abs(cents) > 1_000_000) return { error: "Check the price adjustment." };
-    if (cents !== 0) lines.push({ kind: "adjustment", serviceId: null, label: cents < 0 ? "Discount" : "Adjustment", qty: 1, unitCents: cents, amountCents: cents });
-  }
+  const adj = priceAdjustment(form, lines);
+  if ("error" in adj) return { error: adj.error };
+  if (adj.cents !== 0) lines.push({ kind: "adjustment", serviceId: null, label: adj.cents < 0 ? "Discount" : "Adjustment", qty: 1, unitCents: adj.cents, amountCents: adj.cents });
 
   // The owner may change the estimate on the form ("duration"); otherwise it comes from the home size.
   const typed = Number(form.get("duration"));
@@ -485,15 +501,15 @@ export async function saveLinesAction(appointmentId: string, _: FormState, form:
   if (!FREQUENCIES.includes(frequency)) return { error: "Choose how often." };
   const q = await priceForm(staff.businessId, form, { bedrooms: appt.bedrooms, fullBaths: appt.full_baths, halfBaths: appt.half_baths }, frequency);
   if ("error" in q) return { error: q.error };
-  const adjust = String(form.get("adjustment") ?? "").replace(/[$,\s]/g, "");
-  const adjustCents = adjust === "" ? 0 : Math.round(Number(adjust) * 100);
-  if (!Number.isFinite(adjustCents) || Math.abs(adjustCents) > 1_000_000) return { error: "Check the price adjustment." };
   // The home's standing price is applied again, and so is the visit's discount (changed or removed on the form).
   const standing = q.service.pricing === "quote" ? null : await homeStanding(appt.home_id);
   const chosen = String(form.get("discount") ?? "");
   const [oldCoupon] = await sql`select discount_id from appointment_lines where appointment_home_id = ${appt.appointment_home_id} and kind = 'coupon' limit 1`;
   const coupon = chosen ? (await activeDiscounts(staff.businessId)).find((d) => d.id === chosen) ?? null : null;
   const lines = withDiscounts(q.lines, { adjustCents: standing?.adjustCents, adjustNote: standing?.adjustNote, standing: standing?.discounts, coupon });
+  const adj = priceAdjustment(form, lines);
+  if ("error" in adj) return { error: adj.error };
+  const adjustCents = adj.cents;
   const typed = Number(form.get("duration"));
   const durationMin = Number.isInteger(typed) && typed >= 30 && typed <= 720 ? typed : q.durationMin;
   const endAt = new Date(appt.start_at.getTime() + durationMin * 60_000);
