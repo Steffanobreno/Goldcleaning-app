@@ -1,6 +1,6 @@
 # Estado do projeto Gold Cleaning (para retomar rápido)
 
-Atualizado em 31/10/2026.
+Atualizado em 01/11/2026.
 
 ## Onde está cada coisa
 - **Site:** repositório `Steffanobreno/peninsulagoldcleaning` (Vite + React). Publica pelo Lovable, que puxa a `main`. Domínio peninsulagoldcleaning.com.
@@ -32,7 +32,8 @@ Agendamento do cliente com preço ao vivo; cotações com fotos (Airbnb e escrit
 - E-mails automáticos das limpezas marcadas pela Amanda começam desligados (Settings → Email messages).
 - Número de avaliações do Google no site (hoje 11): confirmar o número real.
 - Fotos de apartamento e escritório (ainda de banco de imagem); fotos de antes e depois novas.
-- Lista de novidades do Woofers: escolher o lote (ver `docs/novidades-woofers.md`).
+- Novidades do Woofers já trazidas (migrações 0021–0030): aceite automático + QR, bloqueio com PIN, repetir em datas escolhidas, agenda 1 ano à frente, recibo PDF/e-mail/link, relatórios PDF e Excel, 2º lembrete + janela de chegada, dias fechados e feriados, etiquetas e "como nos achou", lista de espera, fotos da limpeza, modo offline, deslizar com o dedo (agenda, hoje, calendário), busca A–Z de clientes, Resend opcional, idiomas es/pt/zh/vi (traduções minhas, precisam de revisão de falante nativo).
+- Ainda não trazido: equipe com logins/folha de pagamento (mudança grande), recursos do Google Maps (precisam de chave), aparência da agenda, planejador de reagendamento, logo enviado pelo painel, formulário /intake.
 
 ## Testes
-`npm run test:unit` e `sh scripts/e2e-all.sh` (precisa de Postgres local na porta 5499, servidor `npm run dev` e o coletor `tests/e2e/mail-catcher.py`). Os testes de agendamento precisam de dias livres no mês: no fim do mês podem falhar sem ser defeito.
+`npm run test:unit` e `sh scripts/e2e-all.sh` (12 suítes, todas passando em 01/11; precisa de Postgres local na porta 5499, servidor `npm run dev` e o coletor `tests/e2e/mail-catcher.py`). Os testes de agendamento precisam de dias livres no mês: no fim do mês podem falhar sem ser defeito.

@@ -108,14 +108,14 @@ await shot("today");
 step("Today shows the cleaning");
 
 await page.goto(apptUrl);
-for (const label of ["Mark as confirmed", "I'm on the way", "Check in", "Finish and check out"]) {
+for (const label of ["I'm on the way", "Check in", "Finish order"]) {
   await page.getByRole("button", { name: label }).click();
   await page.waitForLoadState("networkidle");
 }
 await page.waitForURL(/\/checkout/);
 await page.getByText("Regular Clean · Weekly").waitFor();
 await page.getByText("Inside Oven").waitFor();
-step("status moved confirmed → on the way → in progress → done; the bill has the lines");
+step("status moved booked → on the way → in progress → done; the bill has the lines");
 
 await page.getByRole("button", { name: "Custom tip amount" }).click();
 await page.getByLabel("Tip amount").fill("20");

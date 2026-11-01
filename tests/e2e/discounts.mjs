@@ -104,7 +104,10 @@ await page.getByTestId("total").getByText("$206.48").waitFor();
 await page.getByRole("button", { name: "Save" }).click();
 await page.waitForLoadState("networkidle");
 await page.goto(`${BASE}/appointments/${apptId}`); // an overlap warning keeps the form open; the price is saved either way
-await page.getByTestId("appt-total").getByText("$206.48").waitFor();
+await page.getByTestId("appt-total").getByText("$206.48").waitFor({ timeout: 10000 }).catch(async (e) => {
+  console.log("total shows:", await page.getByTestId("appt-total").innerText(), "| lines:", JSON.stringify(await sql`select l.kind, l.price_cents from appointment_lines l join appointment_homes ah on ah.id = l.appointment_home_id where ah.appointment_id = ${apptId} order by l.created_at`));
+  throw e;
+});
 step("Edit price keeps the home's price and lets the visit's discount be removed");
 
 // A new client uses the first-time coupon on /book: Regular one-time 3/2/1 = 298.00; 10% = 29.80 → 268.20
@@ -130,19 +133,19 @@ async function fill(p, { first, phone }) {
   await p.getByLabel("Code or where the key is").fill("1357");
 }
 const cy = await mk();
-await fill(cy, { first: "Cy", phone: "(650) 555-0301" });
+await fill(cy, { first: "Cy", phone: "(650) 555-0391" });
 await cy.getByLabel("Promo code (optional)").fill("nope");
 await cy.getByRole("button", { name: "Apply" }).click();
 await cy.getByText("That code isn't valid.").waitFor();
 await cy.getByLabel("Promo code (optional)").fill("welcome10");
 await cy.getByRole("button", { name: "Apply" }).click();
-await cy.getByText("Welcome (10% off): −$29.80").waitFor();
+await cy.getByText("Welcome (10% off): −$29.80").waitFor({ timeout: 8000 }).catch(async (e) => { console.log((await cy.locator("body").innerText()).slice(-900)); throw e; });
 await cy.getByTestId("book-total").getByText("$268.20").waitFor();
 await cy.getByRole("button", { name: "Request booking" }).click();
 await cy.getByText("Thank you, Cy!").waitFor();
 const cl = await sql`select l.kind, l.price_cents from appointments a join clients c on c.id = a.client_id
                      join appointment_homes ah on ah.appointment_id = a.id join appointment_lines l on l.appointment_home_id = ah.id
-                     where c.phone = '+16505550301' and l.kind in ('coupon')`;
+                     where c.phone = '+16505550391' and l.kind in ('coupon')`;
 if (cl.length !== 1 || cl[0].price_cents !== -2980) fail(`coupon line wrong: ${JSON.stringify(cl)}`);
 const [used] = await sql`select uses from discounts where lower(code) = 'welcome10'`;
 if (used.uses < 1) fail("use not counted");
