@@ -117,6 +117,11 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
             Request accepted{typeof sp.repeat === "string" ? `, and ${sp.repeat} more cleaning${sp.repeat === "1" ? "" : "s"} booked in the series` : ""}.
           </Notice>
         )}
+        {typeof sp.moved === "string" && (
+          <Notice kind={sp.clash && sp.clash !== "0" ? "warn" : "success"}>
+            Moved {sp.moved} visits of this series.{sp.clash && sp.clash !== "0" ? ` ${sp.clash} stayed where they were because another visit is at the new time.` : ""}
+          </Notice>
+        )}
         {typeof sp.taken === "string" && (
           <Notice kind="warn">
             Already taken, so not booked: {sp.taken.split(",").map((d) => dayLabel(zonedToUtc(d, "12:00", tz), tz)).join(", ")}. Book those at another time.
@@ -337,8 +342,12 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
                 action={rescheduleAction.bind(null, id)}
                 date={ymd(appt.start_at, tz)}
                 time={hm(appt.start_at, tz)}
+                following={series?.upcoming ?? 0}
               />
             </Card>
+            <Link href={`/clients/${c.id}/upcoming`} className="block text-center text-sm font-semibold text-brand underline">
+              Move other upcoming visits of {c.first_name}
+            </Link>
           </section>
         )}
 

@@ -91,10 +91,15 @@ export default async function ClientPage({ params }: PageProps<"/clients/[id]">)
             </span>
           </div>
           {upcoming[0] && (
-            <Link href={`/appointments/${upcoming[0].id}`} className="block rounded-2xl bg-success-soft px-4 py-3">
-              <span className="block text-sm font-bold text-success">UPCOMING ({upcoming.length})</span>
-              <span className="block font-semibold">{dayLabel(upcoming[0].start_at, tz)} · {timeLabel(upcoming[0].start_at, tz)}</span>
-            </Link>
+            <div className="rounded-2xl bg-success-soft px-4 py-3">
+              <Link href={`/appointments/${upcoming[0].id}`} className="block">
+                <span className="block text-sm font-bold text-success">UPCOMING ({upcoming.length})</span>
+                <span className="block font-semibold">{dayLabel(upcoming[0].start_at, tz)} · {timeLabel(upcoming[0].start_at, tz)}</span>
+              </Link>
+              {upcoming.length > 0 && (
+                <Link href={`/clients/${id}/upcoming`} className="mt-1 block text-sm font-bold text-brand underline">Move upcoming visits</Link>
+              )}
+            </div>
           )}
           {past[0] && (
             <Link href={`/appointments/${past[0].id}`} className="block rounded-2xl bg-bg px-4 py-3">

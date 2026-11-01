@@ -83,6 +83,34 @@ await page.goto(`${BASE}/calendar?view=agenda&date=${later(2).toISOString().slic
 await page.getByRole("link", { name: /Rita/ }).first().waitFor();
 step("the calendar shows the next cleaning in the series");
 
+// Moving visits of the series: one on the Upcoming list, then one with the ones after it.
+const ymdOf = (d) => d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+const plusDay = (d, n) => ymdOf(new Date(d.getTime() + n * 86_400_000));
+const [rita] = await sql`select c.id from clients c where c.phone = '+16505550401'`;
+const seriesRows = () => sql`select a.id, a.start_at from appointments a where a.client_id = ${rita.id} order by a.start_at`;
+let sr = await seriesRows();
+await page.goto(`${BASE}/clients/${rita.id}/upcoming`, { waitUntil: "networkidle" });
+await page.waitForTimeout(1500);
+const row = page.locator("li", { hasText: "Repeats" }).nth(1); // moved a day later: it keeps its place in the list
+await row.locator('input[name="date"]').fill(plusDay(sr[1].start_at, 1));
+await row.getByRole("button", { name: "Move" }).click();
+await row.getByText("Moved.").waitFor({ timeout: 8000 }).catch(async () => fail("row: " + (await row.innerText())));
+let after = await seriesRows();
+if (ymdOf(after[1].start_at) !== plusDay(sr[1].start_at, 1)) fail("the visit was not moved a day later");
+if (after[2].start_at.getTime() !== sr[2].start_at.getTime()) fail("another visit moved when only one was asked");
+step("Upcoming visits: one visit moved a day later, the others stayed");
+
+await page.goto(`${BASE}/appointments/${sr[0].id}`, { waitUntil: "networkidle" });
+await page.waitForTimeout(1500);
+await page.getByLabel(/This one and the next/).check();
+await page.locator('input[name="date"]').fill(plusDay(sr[0].start_at, 1));
+await page.getByRole("button", { name: "Move appointment" }).click();
+await page.getByText(new RegExp(`Moved ${sr.length} visits of this series`)).waitFor({ timeout: 8000 }).catch(async () => fail("page: " + page.url() + " " + (await page.locator("main").innerText()).slice(0, 500)));
+after = await seriesRows();
+// Visit 2 was already a day later, so it is two days later now; the rest follow by one day.
+if (!sr.every((r, i) => ymdOf(after[i].start_at) === plusDay(r.start_at, i === 1 ? 2 : 1))) fail("the following visits did not move along");
+step("This one and the next moved a day later together");
+
 // Stop repeating removes the later copies (none was confirmed one by one or paid).
 await page.goto(`${BASE}/appointments/${req.id}/repeat`);
 await page.getByRole("button", { name: /Stop repeating/ }).click();

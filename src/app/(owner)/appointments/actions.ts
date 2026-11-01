@@ -190,12 +190,20 @@ export async function setStatusAction(appointmentId: string, status: string) {
   }
 }
 
-export async function rescheduleAction(appointmentId: string, _: FormState, form: FormData): Promise<FormState> {
-  const me = await requireStaff();
+type Moved = { error?: string; warning?: string; ok?: { moved: number; skipped: number } };
+
+/**
+ * Moves one visit to a new day and time (same length). With `following`, the later visits of its
+ * series move by the same number of days, at their own time of day; any of them that would
+ * clash with another visit stays where it is and is counted as skipped.
+ */
+async function moveVisit(
+  me: StaffContext, appointmentId: string, form: FormData, following: boolean,
+): Promise<Moved> {
   const date = String(form.get("date") ?? "");
   const time = String(form.get("time") ?? "");
   if (!isYmd(date) || !/^\d{2}:\d{2}$/.test(time)) return { error: "Pick a date and a start time." };
-  const [appt] = await sql`select start_at, end_at, zip, staff_id, status from appointments where id = ${appointmentId} and business_id = ${me.businessId}`;
+  const [appt] = await sql`select start_at, end_at, zip, staff_id, status, series_id from appointments where id = ${appointmentId} and business_id = ${me.businessId}`;
   if (!appt) return { error: "Appointment not found." };
   if (!["requested", "unconfirmed", "confirmed"].includes(appt.status)) {
     return { error: "This visit already started or is closed. Book a new one instead." };
@@ -217,10 +225,51 @@ export async function rescheduleAction(appointmentId: string, _: FormState, form
     if (isExclusionViolation(e)) return { error: "You already have an appointment at that time. Pick another time." };
     throw e;
   }
-  if (form.get("notify") === "on") await notifyAppointment(appointmentId, "booked");
+  const notify = form.get("notify") === "on";
+  if (notify) await notifyAppointment(appointmentId, "booked");
+  let moved = 1;
+  let skipped = 0;
+  if (following && appt.series_id) {
+    const shift = Math.round((Date.parse(`${date}T12:00:00Z`) - Date.parse(`${ymd(appt.start_at, staff.timezone)}T12:00:00Z`)) / 86_400_000);
+    const later = await sql`
+      select id, start_at, end_at from appointments
+      where series_id = ${appt.series_id} and business_id = ${staff.businessId} and start_at > ${appt.start_at}
+        and id <> ${appointmentId}
+        and status in ('unconfirmed', 'confirmed') order by start_at`;
+    for (const x of later) {
+      const day = addDaysYmd(ymd(x.start_at, staff.timezone), shift);
+      const s2 = zonedToUtc(day, hm(x.start_at, staff.timezone), staff.timezone);
+      const e2 = new Date(s2.getTime() + (x.end_at.getTime() - x.start_at.getTime()));
+      try {
+        await sql`update appointments set start_at = ${s2}, end_at = ${e2}, status = 'unconfirmed', confirmed_at = null
+                  where id = ${x.id} and business_id = ${staff.businessId}`;
+        moved++;
+        if (notify) await notifyAppointment(x.id, "booked");
+      } catch (e) {
+        if (!isExclusionViolation(e)) throw e;
+        skipped++;
+      }
+    }
+  }
   revalidatePath("/today");
   revalidatePath("/calendar");
-  redirect(`/appointments/${appointmentId}`);
+  revalidatePath(`/appointments/${appointmentId}`);
+  return { ok: { moved, skipped } };
+}
+
+export async function rescheduleAction(appointmentId: string, _: FormState, form: FormData): Promise<FormState> {
+  const me = await requireStaff();
+  const r = await moveVisit(me, appointmentId, form, form.get("scope") === "following");
+  if (!r.ok) return r;
+  redirect(`/appointments/${appointmentId}${r.ok.moved > 1 || r.ok.skipped ? `?moved=${r.ok.moved}&clash=${r.ok.skipped}` : ""}`);
+}
+
+/** The quick move on the "Upcoming visits" list: stays on the list and says what happened. */
+export async function quickMoveAction(appointmentId: string, _: Moved | undefined, form: FormData): Promise<Moved> {
+  const me = await requireStaff();
+  const r = await moveVisit(me, appointmentId, form, false);
+  if (r.ok) revalidatePath("/clients");
+  return r;
 }
 
 export async function updateNotesAction(appointmentId: string, form: FormData) {
