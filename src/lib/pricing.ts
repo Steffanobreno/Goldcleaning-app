@@ -60,6 +60,17 @@ export function priceLines(
   return lines;
 }
 
+/**
+ * A home with its own usual price (an older client whose price is not on the price list): the
+ * service and room lines become one line at that price, named like the service. Extras still add.
+ */
+export function withUsualPrice(lines: PriceLine[], usualCents: number): PriceLine[] {
+  const first = lines.find((l) => l.kind === "service");
+  if (!first) return lines;
+  const rest = lines.filter((l) => l.kind !== "service" && l.kind !== "room");
+  return [{ ...first, qty: 1, unitCents: usualCents, amountCents: usualCents }, ...rest];
+}
+
 export const totalCents = (lines: PriceLine[]) => lines.reduce((sum, l) => sum + l.amountCents, 0);
 
 /** Visit length: the base time, plus extra time for homes with more than `largeHomeBedrooms`. */

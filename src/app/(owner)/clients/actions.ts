@@ -225,13 +225,16 @@ export async function saveHomePriceAction(
   const typed = String(form.get("adjustment") ?? "").replace(/[$,\s]/g, "");
   const cents = typed === "" ? 0 : Math.round(Number(typed) * 100);
   if (!Number.isFinite(cents) || Math.abs(cents) > 1_000_000) return { error: "Enter the adjustment like -20 or 15.50." };
+  const usualTyped = String(form.get("usual") ?? "").replace(/[$,\s]/g, "");
+  const usual = usualTyped === "" ? null : Math.round(Number(usualTyped) * 100);
+  if (usual != null && (!Number.isFinite(usual) || usual <= 0 || usual > 1_000_000)) return { error: "Enter the usual price like 145 or 162.50." };
   const note = String(form.get("note") ?? "").trim().slice(0, 80) || null;
   const picked = [...form.keys()].filter((k) => k.startsWith("d:")).map((k) => k.slice(2));
   const valid = picked.length
     ? await sql<{ id: string }[]>`select id from discounts where business_id = ${staff.businessId} and id = any(${picked}::uuid[])`
     : [];
   await sql.begin(async (tx) => {
-    await tx`update homes set price_adjust_cents = ${cents}, price_adjust_note = ${cents ? note : null} where id = ${homeId}`;
+    await tx`update homes set price_adjust_cents = ${cents}, price_adjust_note = ${cents ? note : null}, usual_price_cents = ${usual} where id = ${homeId}`;
     await tx`delete from home_discounts where home_id = ${homeId}`;
     for (const d of valid) await tx`insert into home_discounts (home_id, discount_id) values (${homeId}, ${d.id})`;
   });

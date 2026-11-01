@@ -25,7 +25,7 @@ Regular: 1 quarto/1 banho a partir de $191 (uma vez), $152.80 (semanal), $163 (a
 Segunda a sexta, 9:00 (manhã) e 13:00 (tarde); 3 h (4 h com mais de 3 quartos); pedido online fica "requested" até a Amanda aceitar; aceitar cria a série que repete.
 
 ## Já feito (resumo)
-Agendamento do cliente com preço ao vivo; cotações com fotos (Airbnb e escritório); recuperação de agendamento abandonado; e-mails com logo, recibo de agradecimento e botões; marketing por e-mail; Google Calendar por script (a cada 15 min, conectado em 01/11); backup semanal no Drive; relatórios; **preço por casa e descontos/cupons** (Settings → Discounts); site com calculadora, página de pagamentos, preços, blog (11 posts), galeria com fotos reais, faixa de avaliações do Google, favicon e imagem de compartilhamento.
+Agendamento do cliente com preço ao vivo; cotações com fotos (Airbnb e escritório); recuperação de agendamento abandonado; e-mails com logo, recibo de agradecimento e botões; marketing por e-mail; Google Calendar por script (a cada 15 min, conectado em 01/11); backup semanal no Drive; relatórios; **preço por casa e descontos/cupons** (Settings → Discounts); **preço usual da casa** para clientes antigos com valor fora da tabela (migração 0031; ficha da casa ou, ao agendar, digitar o preço e marcar "Always use this price for this home"); site com calculadora, página de pagamentos, preços, blog (11 posts), galeria com fotos reais, faixa de avaliações do Google, favicon e imagem de compartilhamento.
 
 ## Pendências conhecidas
 - E-mails automáticos das limpezas marcadas pela Amanda começam desligados (Settings → Email messages).

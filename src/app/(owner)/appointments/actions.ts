@@ -8,7 +8,7 @@ import { addDaysYmd, hm, isYmd, timeLabel, todayYmd, weekdayOf, ymd, zonedToUtc 
 import { workingHoursFor } from "@/lib/data/appointments";
 import { insertAppointment } from "@/lib/data/appointment-write";
 import { loadCatalog } from "@/lib/data/catalog";
-import { agreedQuote, FREQUENCIES, quote, totalCents, withDiscounts, type Frequency, type HomeSize, type PriceLine } from "@/lib/pricing";
+import { agreedQuote, FREQUENCIES, quote, totalCents, withDiscounts, withUsualPrice, type Frequency, type HomeSize, type PriceLine } from "@/lib/pricing";
 import { activeDiscounts, homeStanding, recordUse } from "@/lib/data/discounts";
 import { recalcInvoice } from "@/lib/data/invoices";
 import { notifyAppointment } from "@/lib/messaging";
@@ -88,6 +88,31 @@ function priceAdjustment(form: FormData, lines: PriceLine[]): { cents: number } 
   return { cents };
 }
 
+/**
+ * The visit's lines from the price list, then the home's usual price (instead of the list price of the cleaning)
+ * or its standing adjustment, its standing discounts and the visit's discount. With "save_usual" ticked and a
+ * price typed, that price (less the extras) becomes the home's usual price first.
+ */
+async function standingLines(businessId: string, form: FormData, q: { service: { pricing: string }; lines: PriceLine[] }, homeId: string) {
+  let standing = q.service.pricing === "quote" ? null : await homeStanding(homeId);
+  const typed = String(form.get("final_price") ?? "").replace(/[$,\s]/g, "");
+  if (standing && form.get("save_usual") === "on" && typed !== "" && Number.isFinite(Number(typed))) {
+    const extras = totalCents(q.lines.filter((l) => l.kind === "extra"));
+    const usual = Math.round(Number(typed) * 100) - extras;
+    if (usual > 0 && usual <= 1_000_000) {
+      await sql`update homes set usual_price_cents = ${usual} where id = ${homeId}`;
+      standing = await homeStanding(homeId);
+    }
+  }
+  const chosen = String(form.get("discount") ?? "");
+  const coupon = chosen ? (await activeDiscounts(businessId)).find((d) => d.id === chosen) ?? null : null;
+  const usual = standing?.usualCents ?? null;
+  const lines = withDiscounts(usual ? withUsualPrice(q.lines, usual) : q.lines, {
+    adjustCents: usual ? undefined : standing?.adjustCents, adjustNote: standing?.adjustNote, standing: standing?.discounts, coupon,
+  });
+  return { lines, coupon };
+}
+
 export async function createAppointmentAction(clientId: string, _: FormState, form: FormData): Promise<FormState> {
   const staff = await requireStaff();
   const date = String(form.get("date") ?? "");
@@ -106,13 +131,7 @@ export async function createAppointmentAction(clientId: string, _: FormState, fo
 
   const q = await priceForm(staff.businessId, form, { bedrooms: home.bedrooms, fullBaths: home.full_baths, halfBaths: home.half_baths }, frequency);
   if ("error" in q) return { error: q.error };
-  // The home's standing price (adjustment and discounts), then a discount for this visit only.
-  const standing = q.service.pricing === "quote" ? null : await homeStanding(homeId);
-  const chosen = String(form.get("discount") ?? "");
-  const coupon = chosen ? (await activeDiscounts(staff.businessId)).find((d) => d.id === chosen) ?? null : null;
-  const lines: PriceLine[] = withDiscounts(q.lines, {
-    adjustCents: standing?.adjustCents, adjustNote: standing?.adjustNote, standing: standing?.discounts, coupon,
-  });
+  const { lines, coupon } = await standingLines(staff.businessId, form, q, homeId);
   const adj = priceAdjustment(form, lines);
   if ("error" in adj) return { error: adj.error };
   if (adj.cents !== 0) lines.push({ kind: "adjustment", serviceId: null, label: adj.cents < 0 ? "Discount" : "Adjustment", qty: 1, unitCents: adj.cents, amountCents: adj.cents });
@@ -501,12 +520,9 @@ export async function saveLinesAction(appointmentId: string, _: FormState, form:
   if (!FREQUENCIES.includes(frequency)) return { error: "Choose how often." };
   const q = await priceForm(staff.businessId, form, { bedrooms: appt.bedrooms, fullBaths: appt.full_baths, halfBaths: appt.half_baths }, frequency);
   if ("error" in q) return { error: q.error };
-  // The home's standing price is applied again, and so is the visit's discount (changed or removed on the form).
-  const standing = q.service.pricing === "quote" ? null : await homeStanding(appt.home_id);
-  const chosen = String(form.get("discount") ?? "");
+  // The home's usual price (or standing adjustment) is applied again, and so is the visit's discount (changed or removed on the form).
   const [oldCoupon] = await sql`select discount_id from appointment_lines where appointment_home_id = ${appt.appointment_home_id} and kind = 'coupon' limit 1`;
-  const coupon = chosen ? (await activeDiscounts(staff.businessId)).find((d) => d.id === chosen) ?? null : null;
-  const lines = withDiscounts(q.lines, { adjustCents: standing?.adjustCents, adjustNote: standing?.adjustNote, standing: standing?.discounts, coupon });
+  const { lines, coupon } = await standingLines(staff.businessId, form, q, appt.home_id);
   const adj = priceAdjustment(form, lines);
   if ("error" in adj) return { error: adj.error };
   const adjustCents = adj.cents;

@@ -76,7 +76,7 @@ export default async function NewAppointmentPage({ searchParams }: PageProps<"/a
   const standing = Object.fromEntries(
     await Promise.all(homes.map(async (h) => {
       const s = await homeStanding(h.id);
-      return [h.id, { adjustCents: s.adjustCents, note: s.adjustNote, discounts: s.discounts }] as const;
+      return [h.id, { adjustCents: s.adjustCents, note: s.adjustNote, usualCents: s.usualCents, discounts: s.discounts }] as const;
     })),
   );
   const homeParam = typeof sp.home === "string" ? sp.home : undefined;

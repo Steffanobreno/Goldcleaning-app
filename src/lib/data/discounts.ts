@@ -34,13 +34,13 @@ export async function activeDiscounts(businessId: string, d0: Db = sql) {
 /** What a home carries: its standing adjustment and its standing discounts (active ones). */
 export async function homeStanding(homeId: string, d0: Db = sql) {
   const db = d0 as Sql;
-  const [h] = await db<{ price_adjust_cents: number; price_adjust_note: string | null }[]>`
-    select price_adjust_cents, price_adjust_note from homes where id = ${homeId}`;
+  const [h] = await db<{ price_adjust_cents: number; price_adjust_note: string | null; usual_price_cents: number | null }[]>`
+    select price_adjust_cents, price_adjust_note, usual_price_cents from homes where id = ${homeId}`;
   const rows = await db<DiscountRow[]>`
     select d.id, d.name, d.code, d.kind, d.percent, d.amount_cents, d.first_time_only, d.starts_on::text, d.ends_on::text,
            d.max_uses, d.uses, d.active
     from home_discounts hd join discounts d on d.id = hd.discount_id where hd.home_id = ${homeId} and d.active order by d.name`;
-  return { adjustCents: h?.price_adjust_cents ?? 0, adjustNote: h?.price_adjust_note ?? null, discounts: rows.map(toDef) };
+  return { adjustCents: h?.price_adjust_cents ?? 0, adjustNote: h?.price_adjust_note ?? null, usualCents: h?.usual_price_cents ?? null, discounts: rows.map(toDef) };
 }
 
 /**

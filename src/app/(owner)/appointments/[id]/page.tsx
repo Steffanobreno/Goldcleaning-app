@@ -93,7 +93,7 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
           order by a.start_at desc limit 1`
       : Promise.resolve([] as { id: string; start_at: Date; notes: string | null; photos: number }[]),
   ]);
-  const hasStanding = !!standing && (standing.adjustCents !== 0 || standing.discounts.length > 0);
+  const hasStanding = !!standing && (standing.adjustCents !== 0 || standing.usualCents != null || standing.discounts.length > 0);
   const primary = PRIMARY[appt.status];
   const paid = checkout?.invoice.status === "closed";
   const closed = ["cancelled", "no_show", "declined"].includes(appt.status);
@@ -130,7 +130,7 @@ export default async function AppointmentPage({ params, searchParams }: PageProp
         {sp.conflict === "1" && <Notice kind="error">Another appointment already uses that time.</Notice>}
         {hasStanding && standing && (
           <Notice kind="info">
-            This home has its own price ({[standing.adjustCents ? `${standing.adjustCents < 0 ? "−" : "+"}${money(Math.abs(standing.adjustCents))} per visit` : null, ...standing.discounts.map(discountLabel)].filter(Boolean).join(", ")}).
+            This home has its own price ({[standing.usualCents ? `usual price ${money(standing.usualCents)}` : standing.adjustCents ? `${standing.adjustCents < 0 ? "−" : "+"}${money(Math.abs(standing.adjustCents))} per visit` : null, ...standing.discounts.map(discountLabel)].filter(Boolean).join(", ")}).
             The request was priced from the price list: tap <strong>Edit price</strong> and Save to apply it.
           </Notice>
         )}

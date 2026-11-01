@@ -54,7 +54,7 @@ export default async function EditPricePage({ params }: PageProps<"/appointments
               defaultDate=""
               defaultTime=""
               slotTimes={[]}
-              standing={{ [home.id]: { adjustCents: stand.adjustCents, note: stand.adjustNote, discounts: stand.discounts } }}
+              standing={{ [home.id]: { adjustCents: stand.adjustCents, note: stand.adjustNote, usualCents: stand.usualCents, discounts: stand.discounts } }}
               discounts={options}
               edit={{
                 serviceId: appt.service_id ?? "",

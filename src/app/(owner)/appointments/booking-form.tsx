@@ -4,7 +4,7 @@ import { useActionState, useState } from "react";
 import { Button, Field, Input, Notice, Select, Textarea } from "@/components/ui";
 import { minutesLabel, money } from "@/lib/format";
 import { homeSizeLabel } from "@/lib/home-options";
-import { agreedQuote, discountLabel, FREQUENCIES, FREQUENCY_LABEL, quote, totalCents, withDiscounts, type Catalog, type DiscountDef, type Frequency } from "@/lib/pricing";
+import { agreedQuote, discountLabel, FREQUENCIES, FREQUENCY_LABEL, quote, totalCents, withDiscounts, withUsualPrice, type Catalog, type DiscountDef, type Frequency } from "@/lib/pricing";
 import type { FormState } from "./actions";
 import { DateField } from "@/components/date-field";
 
@@ -23,7 +23,7 @@ export type EditValues = {
 };
 
 /** What a home carries: its standing adjustment and discounts, applied to every visit booked for it. */
-export type Standing = { adjustCents: number; note: string | null; discounts: DiscountDef[] };
+export type Standing = { adjustCents: number; note: string | null; usualCents: number | null; discounts: DiscountDef[] };
 
 export function BookingForm({
   action,
@@ -81,7 +81,10 @@ export function BookingForm({
   // The home's standing price and the visit's discount are added to the cleaning's lines (not for an agreed price).
   const stand = !agreed ? standing[homeId] : undefined;
   const coupon = discounts.find((d) => d.id === couponId) ?? null;
-  const lines = priced ? withDiscounts(priced.lines, { adjustCents: stand?.adjustCents, adjustNote: stand?.note, standing: stand?.discounts, coupon }) : [];
+  const usual = stand?.usualCents ?? null;
+  const lines = priced
+    ? withDiscounts(usual ? withUsualPrice(priced.lines, usual) : priced.lines, { adjustCents: usual ? undefined : stand?.adjustCents, adjustNote: stand?.note, standing: stand?.discounts, coupon })
+    : [];
   // A price typed by hand replaces the price list for this visit; the difference shows as one line.
   const typedPrice = finalPrice.replace(/[$,\s]/g, "");
   const listTotal = totalCents(lines);
@@ -221,9 +224,21 @@ export function BookingForm({
           </Select>
         </Field>
       )}
-      <Field label="Price for this visit ($, optional)" hint={`Type the price you agreed with the client: it replaces the price list ${money(listTotal)} for this visit only. Leave it empty to use the price list. For a home that always pays a different price, set it on the home.`}>
+      {usual && !agreed && (
+        <Notice kind="info">This home&apos;s usual price is {money(usual)} for the cleaning, not the price list. Extras are added on top.</Notice>
+      )}
+      <Field label="Price for this visit ($, optional)" hint={`Type the price you agreed with the client: it replaces ${usual ? "the usual price" : "the price list"} ${money(listTotal)} for this visit. Leave it empty to use ${usual ? "the usual price" : "the price list"}.`}>
         <Input name="final_price" inputMode="decimal" value={finalPrice} onChange={(e) => setFinalPrice(e.target.value)} placeholder={(listTotal / 100).toFixed(2)} />
       </Field>
+      {!agreed && typedPrice !== "" && adjustCents !== 0 && (
+        <label className="-mt-2 flex items-start gap-3 text-sm">
+          <input type="checkbox" name="save_usual" className="mt-0.5 h-5 w-5" />
+          <span>
+            <span className="font-semibold">Always use this price for this home</span>
+            <span className="block text-muted">For a client whose price is not on the price list. Every visit booked for this home, repeating ones too, will use it (extras on top).</span>
+          </span>
+        </label>
+      )}
       {!edit && (
         <Field label="Notes for this cleaning (optional)">
           <Textarea name="notes" placeholder="Private notes for this visit" />

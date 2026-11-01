@@ -8,7 +8,7 @@ import { saveHomePriceAction } from "./actions";
 /** "Price for this home": a standing adjustment and standing discounts, used for every visit booked here. */
 export async function HomePrice({ businessId, clientId, homeId }: { businessId: string; clientId: string; homeId: string }) {
   const [[home], all, mine] = await Promise.all([
-    sql<{ price_adjust_cents: number; price_adjust_note: string | null }[]>`select price_adjust_cents, price_adjust_note from homes where id = ${homeId}`,
+    sql<{ price_adjust_cents: number; price_adjust_note: string | null; usual_price_cents: number | null }[]>`select price_adjust_cents, price_adjust_note, usual_price_cents from homes where id = ${homeId}`,
     sql<DiscountRow[]>`
       select id, name, code, kind, percent, amount_cents, first_time_only, starts_on::text, ends_on::text, max_uses, uses, active
       from discounts where business_id = ${businessId} and active and code is null order by name`,
@@ -20,11 +20,13 @@ export async function HomePrice({ businessId, clientId, homeId }: { businessId: 
     <Card className="space-y-3">
       <h2 className="font-bold">Price for this home</h2>
       <p className="text-sm text-muted">
-        For a client who pays a little more or less than the price list. It is added to every visit booked for this home,
-        including repeating ones. Visits already booked keep their price.
+        For a client whose price is not on the price list (an older client). Visits already booked keep their price.
       </p>
       <SimpleForm action={saveHomePriceAction.bind(null, clientId, homeId)} submitLabel="Save price" savedLabel="Price saved.">
-        <Field label="Adjustment per visit ($)" hint="A negative amount lowers the price, like -20. A positive one raises it. Empty means the price list.">
+        <Field label="Usual price per visit ($)" hint="What this client always pays for the cleaning, whatever the home size says. Used for every visit booked for this home, including repeating ones; extras are added on top. Empty means the price list.">
+          <Input name="usual" inputMode="decimal" defaultValue={home?.usual_price_cents ? (home.usual_price_cents / 100).toFixed(2) : ""} placeholder="Price list" />
+        </Field>
+        <Field label="Adjustment per visit ($)" hint="Only when there is no usual price: a negative amount lowers the price list, like -20; a positive one raises it.">
           <Input name="adjustment" inputMode="decimal" defaultValue={home?.price_adjust_cents ? (home.price_adjust_cents / 100).toFixed(2) : ""} placeholder="0.00" />
         </Field>
         <Field label="Label on the bill (optional)" hint="Shown to the client, like “Loyalty rate”. Empty shows “Regular client rate”.">

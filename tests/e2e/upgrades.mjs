@@ -229,6 +229,42 @@ const [{ pin }] = await sql`select count(*)::int as pin from staff where pin_has
 if (pin !== 0) fail("the PIN should be off again");
 step("app lock: asks for the PIN, refuses a wrong one, opens with the right one, turns off");
 
+// 9. An older client's own price: set on the home, used instead of the price list; or saved from the booking form.
+const [ben] = await sql`select c.id as client_id, h.id as home_id from clients c join homes h on h.client_id = c.id where c.phone = '+16505550143' limit 1`;
+await page.goto(`${BASE}/clients/${ben.client_id}/homes/${ben.home_id}`);
+await page.getByLabel(/^Usual price per visit/).fill("140");
+await page.getByRole("button", { name: "Save price" }).click();
+await page.getByText("Price saved.").waitFor();
+const friday = new Date();
+friday.setDate(friday.getDate() + 28);
+while (friday.getDay() !== 5) friday.setDate(friday.getDate() + 1);
+const fdate = friday.toISOString().slice(0, 10);
+await page.goto(`${BASE}/appointments/new?client=${ben.client_id}&home=${ben.home_id}&date=${fdate}&time=13:00`, { waitUntil: "networkidle" });
+await page.selectOption('select[name="service"]', { label: "Regular Clean" });
+await page.getByText("Weekly", { exact: true }).click();
+await page.getByText(/usual price is \$140\.00/).waitFor();
+await page.getByTestId("total").getByText("$140.00").waitFor();
+await page.locator("summary", { hasText: "Extras" }).click();
+await page.getByRole("button", { name: "More Inside Oven" }).click();
+await page.getByTestId("total").getByText("$180.00").waitFor();
+step("a home with a usual price books at that price (extras on top), not the price list");
+await page.getByRole("button", { name: "Fewer Inside Oven" }).click();
+// Typing a price and ticking "Always use this price" saves it as the home's usual price.
+await page.fill('input[name="final_price"]', "130");
+await page.getByTestId("total").getByText("$130.00").waitFor();
+await page.getByLabel(/Always use this price for this home/).check();
+await page.getByRole("button", { name: "Book cleaning" }).click();
+await Promise.race([page.waitForURL(/\/appointments\/[0-9a-f-]+\?booked=1/), page.getByLabel("Book anyway").waitFor()]);
+if (await page.getByLabel("Book anyway").count()) {
+  await page.getByLabel("Book anyway").check();
+  await page.getByRole("button", { name: "Book cleaning" }).click();
+  await page.waitForURL(/\/appointments\/[0-9a-f-]+\?booked=1/);
+}
+await page.getByTestId("appt-total").getByText("$130.00").waitFor();
+const [{ usual }] = await sql`select usual_price_cents as usual from homes where id = ${ben.home_id}`;
+if (usual !== 13000) fail(`the usual price should be saved as 13000, got ${usual}`);
+step("the typed price $130.00 was kept for the visit and saved as the home's usual price");
+
 await browser.close();
 await sql.end();
 if (errors.length) fail(`page errors: ${errors.join(" | ")}`);
