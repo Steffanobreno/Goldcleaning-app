@@ -4,7 +4,7 @@ Atualizado em 01/11/2026.
 
 ## Onde está cada coisa
 - **Site:** repositório `Steffanobreno/peninsulagoldcleaning` (Vite + React). Publica pelo Lovable, que puxa a `main`. Domínio peninsulagoldcleaning.com.
-- **App (agendamento do cliente + painel da Amanda):** repositório `Steffanobreno/Goldcleaning-app` (Next.js 16), ramo `main` para trabalho e **`production` é o que o Netlify publica** em goldcleaning-app.netlify.app. Banco no Neon. Tabelas e dados são criados no deploy (migrações em `db/migrations`).
+- **App (agendamento do cliente + painel da Amanda):** repositório `Steffanobreno/Goldcleaning-app` (Next.js 16), **o Netlify publica a `main`** (confirmado no painel em 01/11: "Production: main@fb5ba00"), em goldcleaning-app.netlify.app. Tudo que entra na `main` vai ao ar; a branch `production` existe mas não é usada. Banco no Neon. Tabelas e dados são criados no deploy (migrações em `db/migrations`).
 - **Página do cliente:** `/book`. O site abre essa página dentro de `/book-now` (iframe). A raiz do app manda quem não é da equipe para `/book`; login da equipe em `/login`.
 - **Origem do código:** copiado do Woofers (`Steffanobreno/duperpower`, `production` em 22/10, commit `0208d81`). A lista de novidades do Woofers para trazer está em `docs/novidades-woofers.md`.
 
@@ -15,7 +15,7 @@ Atualizado em 01/11/2026.
 - Comunicação com o cliente **só por e-mail**; ligação e mensagem de texto são feitas à mão.
 - Não falar de máquina de pressão nem de organização de despensa como serviço do site (o cliente pergunta por e-mail).
 - A string de conexão do banco (Neon) nunca vai em conversa, e `.env.local` nunca entra no Git.
-- Publicar o app (empurrar para `production`) e juntar PR do site só com autorização de quem pediu.
+- Publicar o app (empurrar para a `main`, que o Netlify publica) e juntar PR do site só com autorização de quem pediu.
 - Endereço postal dos e-mails: 1201 Monte Diablo Ave, San Mateo, CA 94401.
 
 ## Preços (tabela única, igual no app e em `src/data/pricing.ts` do site)
