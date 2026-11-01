@@ -40,6 +40,8 @@ step("add and delete a client note");
 
 // Inactive
 await page.getByRole("switch", { name: /Inactive customer/ }).click();
+await page.getByRole("switch", { name: /Inactive customer/, checked: true }).waitFor();
+await page.waitForTimeout(1500); // the change is saved in the background
 await page.goto(`${BASE}/clients?q=Ana`);
 if (await page.getByRole("link", { name: /Ana Silva/ }).count()) fail("inactive client still in the active list");
 await page.getByRole("link", { name: "Inactive clients" }).click();

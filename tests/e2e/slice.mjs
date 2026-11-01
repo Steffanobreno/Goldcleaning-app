@@ -15,7 +15,8 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-page.on("console", (m) => m.type() === "error" && errors.push(`${m.text()} ${m.location()?.url ?? ""}`));
+// Map tiles come from the internet: a machine without it (like this test box) can't load them, and that is not the app's fault.
+page.on("console", (m) => m.type() === "error" && !/tile\.openstreetmap\.org/.test(`${m.text()} ${m.location()?.url ?? ""}`) && errors.push(`${m.text()} ${m.location()?.url ?? ""}`));
 page.on("response", (r) => r.status() === 404 && errors.push(`404 ${r.url()}`));
 const shot = (name) => page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true, caret: "initial" });
 const step = (msg) => console.log(`✓ ${msg}`);
@@ -145,7 +146,7 @@ await page.waitForURL(/\/appointments\/new\?client=/);
 await page.goto(page.url() + `&date=${date}&time=13:00`);
 await page.getByRole("button", { name: "Book cleaning" }).click();
 await page.waitForURL(/\/appointments\/[0-9a-f-]+\?booked=1/);
-await page.goto(`${BASE}/today?date=${date}`);
+await page.goto(`${BASE}/today?date=${date}&view=list`);
 await page.getByText(/↓ \d+\.\d mi from Ana's/).waitFor();
 await shot("today-two-homes");
 const dayName = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" });

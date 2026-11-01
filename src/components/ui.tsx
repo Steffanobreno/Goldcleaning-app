@@ -42,7 +42,7 @@ export function PageHeader({ title, back, action }: { title: string; back?: stri
           <MenuButton />
         )}
         <h1 className="min-w-0 flex-1 truncate text-lg font-bold">{title}</h1>
-        {action}
+        {action && <span className="header-action">{action}</span>}
       </div>
     </header>
   );

@@ -17,6 +17,8 @@
   --color-navy-deep: #06142a;
   --color-gold: #c6a45e;
   --color-gold-soft: #f3ead7;
+  --color-gold-light: #f7e7a1;
+  --color-gold-deep: #a8811f;
   --color-sky: #c6a45e;
   --color-danger: #b42318;
   --color-danger-soft: #fdecea;
@@ -98,6 +100,23 @@ textarea {
   line-height: 1;
 }
 
+/* Navy and gold: every filled brand surface (buttons, the chosen day, chips) gets the navy
+   gradient and a thin gold edge, like the booking-request banner. */
+@layer components {
+  .bg-brand {
+    background-image: linear-gradient(135deg, #0b1f3b, #12305a 55%, #0b1f3b);
+    outline: 1px solid rgb(212 175 55 / 0.8);
+    outline-offset: -1px;
+  }
+}
+/* On the navy header, the main button is gold with navy text. */
+.header-action .bg-brand {
+  background-image: linear-gradient(90deg, var(--color-gold-light), #d4af37);
+  color: var(--color-navy);
+  font-weight: 700;
+  outline: none;
+}
+
 /* Numbered pins on the route map (Today). */
 .route-pin {
   width: 32px;
@@ -119,6 +138,12 @@ textarea {
 }
 .route-pin-done {
   background: var(--color-success);
+}
+/* The visit whose card is showing on the Today map. */
+.route-pin-active {
+  background: #d4af37;
+  scale: 1.25;
+  transition: scale 0.15s;
 }
 .route-pop {
   color: inherit;

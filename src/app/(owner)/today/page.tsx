@@ -2,14 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireStaff } from "@/lib/auth";
 import { sql } from "@/lib/db";
-import { listDay, visitLabel } from "@/lib/data/appointments";
+import { listDay, listRange, visitLabel } from "@/lib/data/appointments";
 import { accessLabel } from "@/lib/home-options";
 import { directionsUrl, routeUrl } from "@/lib/directions";
-import { addDaysYmd, isYmd, longDayLabel, money, timeLabel, todayYmd, zonedToUtc } from "@/lib/format";
+import { addDaysYmd, isYmd, longDayLabel, money, timeLabel, todayYmd, ymd, zonedToUtc } from "@/lib/format";
 import { ButtonLink, Empty, Notice, Page, PageHeader, StatusBadge } from "@/components/ui";
 import { closedDays } from "@/lib/data/closed";
 import { waitlistOpenings } from "@/lib/data/waitlist";
-import { DayNav } from "@/components/day-nav";
+import { DayMap, type DayStop } from "@/components/day-map";
+import { GoldBanner } from "@/components/gold-banner";
+import { MonthStrip, WeekStrip, monthGridStart, shiftMonth } from "@/components/week-strip";
 import { Swipe } from "@/components/swipe";
 import { Chat, Phone, Pin } from "@/components/icons";
 import { RouteMap } from "@/components/route-map";
@@ -20,13 +22,33 @@ import { listGroomers } from "@/lib/data/staff";
 
 export const metadata: Metadata = { title: "Today" };
 
+// The next step on a visit's card, as on the visit page.
+const NEXT: Record<string, { to: string; label: string }> = {
+  requested: { to: "unconfirmed", label: "Accept" },
+  unconfirmed: { to: "en_route", label: "I'm on the way" },
+  confirmed: { to: "en_route", label: "I'm on the way" },
+  en_route: { to: "in_progress", label: "Check in" },
+  in_progress: { to: "completed", label: "Finish" },
+};
+
+// The status on a card's dark header: red until the client confirms (like on the calendar).
+const CARD_STATUS: Record<string, { label: string; className: string }> = {
+  requested: { label: "REQUESTED", className: "bg-warn text-white" },
+  unconfirmed: { label: "NOT CONFIRMED", className: "bg-danger text-white" },
+  confirmed: { label: "CONFIRMED", className: "bg-success text-white" },
+  en_route: { label: "ON THE WAY", className: "bg-gold text-navy" },
+  in_progress: { label: "CHECKED IN", className: "bg-success text-white" },
+  completed: { label: "UNPAID", className: "bg-danger text-white" },
+  paid: { label: "PAID", className: "bg-success text-white" },
+};
+
 export default async function TodayPage({ searchParams }: PageProps<"/today">) {
   const staff = await requireStaff();
   const sp = await searchParams;
   const tz = staff.timezone;
   const today = todayYmd(tz);
   const date = isYmd(sp.date) ? sp.date : today;
-  const [day, [{ requests, quotes }], groomers, closed, openings] = await Promise.all([
+  const [day, [{ requests, quotes }], groomers, closed, openings, month] = await Promise.all([
     listDay(staff, date),
     sql<{ requests: number; quotes: number }[]>`
       select (select count(*)::int from appointments
@@ -36,6 +58,8 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
     closedDays(staff.businessId, date, date),
     // Spots that opened for someone on the waitlist.
     waitlistOpenings(staff),
+    // Dots: visits on each day of the month grid around the date (it contains the date's week).
+    listRange(staff, monthGridStart(date), 42),
   ]);
   // A route is one groomer's day: yours unless another one (or all) is picked.
   const groomer = sp.groomer === "all" ? null
@@ -63,6 +87,37 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
     return zipMiles(p.zip, s.zip);
   });
 
+  const view = sp.view === "list" ? "list" : "map";
+  const monthOpen = sp.cal === "1";
+  const shown = month.filter((a) => (!groomer || a.staff_id === groomer) && !["cancelled", "no_show"].includes(a.status));
+  const dotsOn = (d: string) => shown.filter((a) => ymd(a.start_at, tz) === d).length;
+  const q = (extra: Record<string, string>) => {
+    const params = new URLSearchParams({ date, groomer: groomer ?? "all", ...(view === "list" ? { view } : {}), ...(monthOpen ? { cal: "1" } : {}), ...extra });
+    for (const [k, v] of [...params]) if (!v) params.delete(k);
+    return `/today?${params}`;
+  };
+  const cards: DayStop[] = stops.map((s, i) => {
+    const next = s.paid ? null : NEXT[s.status] ?? null;
+    return {
+      id: s.id, n: i + 1, lat: s.lat, lng: s.lng,
+      time: `${timeLabel(s.start_at, tz)} – ${timeLabel(s.end_at, tz)}`,
+      status: CARD_STATUS[s.paid ? "paid" : s.status] ?? { label: s.status, className: "bg-white/20" },
+      client: s.client_name,
+      initials: s.client_name.split(/\s+/).map((w) => w[0] ?? "").slice(0, 2).join("").toUpperCase(),
+      isNew: false,
+      visit: visitLabel(s),
+      total: money(s.total_cents),
+      phone: s.client_phone,
+      address: s.address_line,
+      directions: s.address_line || s.lat != null ? directionsUrl({ address: s.address_line, lat: s.lat, lng: s.lng }) : null,
+      next,
+      notes: [
+        ...(s.home?.access_method ? [`🔑 ${[accessLabel(s.home.access_method), s.home.access_code].filter(Boolean).join(" · ")}`] : []),
+        ...(s.home?.pets_in_home ? [`🐾 ${s.home.pets_in_home}`] : []),
+      ],
+    };
+  });
+
   return (
     <>
       <PageHeader
@@ -72,38 +127,73 @@ export default async function TodayPage({ searchParams }: PageProps<"/today">) {
       <Page>
         {closed.has(date) && <Notice kind="warn">Closed · {closed.get(date)}. Clients can&apos;t book online.</Notice>}
         {requests > 0 && (
-          <ButtonLink href="/requests" kind="secondary" className="w-full border-warn bg-warn-soft text-warn">
-            {requests} booking request{requests > 1 ? "s" : ""} waiting
-          </ButtonLink>
+          <GoldBanner href="/requests" count={requests} icon="bell" action="Review" compact={view !== "list"}
+            title={`${requests} booking request${requests > 1 ? "s" : ""} waiting`} text="Tap to accept or decline" />
         )}
         {openings.length > 0 && (
-          <ButtonLink href="/waitlist" kind="secondary" className="w-full border-gold bg-gold-soft">
-            A spot opened for {new Set(openings.map((o) => o.entry_id)).size} on the waitlist
-          </ButtonLink>
+          <GoldBanner href="/waitlist" count={new Set(openings.map((o) => o.entry_id)).size} icon="bell" action="See" compact={view !== "list"}
+            title={`A spot opened · ${new Set(openings.map((o) => o.entry_id)).size} on the waitlist`} text="Call or book them" />
         )}
         {quotes > 0 && (
-          <ButtonLink href="/requests?tab=quotes" kind="secondary" className="w-full border-warn bg-warn-soft text-warn">
-            {quotes} quote request{quotes > 1 ? "s" : ""} waiting
-          </ButtonLink>
+          <GoldBanner href="/requests?tab=quotes" count={quotes} icon="cart" action="Review" compact={view !== "list"}
+            title={`${quotes} quote request${quotes > 1 ? "s" : ""} waiting`} text="Tap to answer" />
         )}
         <GroomerFilter groomers={groomers} current={groomer}
-          href={(g) => `/today?date=${date}&groomer=${g ?? "all"}`} />
-        <DayNav
-          base={`/today?groomer=${groomer ?? "all"}&`}
-          prev={addDaysYmd(date, -1)}
-          next={addDaysYmd(date, 1)}
-          today={today}
-          label={longDayLabel(zonedToUtc(date, "12:00", tz), tz)}
-          isToday={date === today}
-        />
+          href={(g) => `/today?date=${date}&groomer=${g ?? "all"}${view === "list" ? "&view=list" : ""}`} />
+        <div className="flex items-center gap-1">
+          <Link href={q({ date: monthOpen ? shiftMonth(date, -1) : addDaysYmd(date, -1) })}
+            aria-label={monthOpen ? "Previous month" : "Previous day"} className="rounded-full p-2 text-lg text-brand">‹</Link>
+          <Link href={q({ cal: monthOpen ? "" : "1" })} aria-expanded={monthOpen}
+            aria-label={monthOpen ? "Show one week" : "Show the whole month"}
+            className="flex min-w-0 flex-1 items-center justify-center gap-1.5 font-bold">
+            <span className="truncate">{monthOpen
+              ? new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
+              : longDayLabel(zonedToUtc(date, "12:00", tz), tz)}</span>
+            <span aria-hidden className="text-brand">{monthOpen ? "▴" : "▾"}</span>
+          </Link>
+          <Link href={q({ date: monthOpen ? shiftMonth(date, 1) : addDaysYmd(date, 1) })}
+            aria-label={monthOpen ? "Next month" : "Next day"} className="rounded-full p-2 text-lg text-brand">›</Link>
+          {date !== today && <Link href={q({ date: today })} className="shrink-0 px-1 text-sm font-semibold text-brand">Today</Link>}
+        </div>
+        {monthOpen ? (
+          <MonthStrip date={date} today={today} dots={dotsOn} href={(d) => q({ date: d })}
+            monthHref={(n) => q({ date: shiftMonth(date, n) })} />
+        ) : (
+          <WeekStrip date={date} today={today} dots={dotsOn} href={(d) => q({ date: d })} />
+        )}
+        {stops.length > 0 && (
+          <div className="flex items-center gap-2 text-sm">
+            <p className="min-w-0 flex-1 truncate text-muted">
+              <strong className="text-ink">{stops.length}</strong> stop{stops.length > 1 ? "s" : ""} · {done}/{stops.length} done · {money(expected)}
+            </p>
+            <nav aria-label="View" className="flex shrink-0 rounded-full bg-surface p-0.5 shadow-[var(--shadow-card)]">
+              {(["map", "list"] as const).map((v) => (
+                <Link key={v} href={q({ view: v === "list" ? "list" : "" })} aria-current={v === view ? "page" : undefined}
+                  className={`rounded-full px-3 py-1 font-semibold ${v === view ? "bg-navy text-white" : "text-muted"}`}>
+                  {v === "map" ? "Map" : "List"}
+                </Link>
+              ))}
+              <Link href={`/calendar?view=day&date=${date}${groomer ? `&groomer=${groomer}` : ""}`}
+                className="rounded-full px-3 py-1 font-semibold text-muted">Agenda</Link>
+            </nav>
+          </div>
+        )}
 
-        {/* Swipe sideways for the day before or after. */}
-        <Swipe className="space-y-4" prev={`/today?groomer=${groomer ?? "all"}&date=${addDaysYmd(date, -1)}`} next={`/today?groomer=${groomer ?? "all"}&date=${addDaysYmd(date, 1)}`}>
+        {stops.length > 0 && view === "map" && (
+          <div className="-mx-4 -mb-24">
+            <DayMap stops={cards} route={route} compact={monthOpen} />
+          </div>
+        )}
+
+        {/* The list: swipe sideways for the day before or after. */}
+        <Swipe className="space-y-4"
+          prev={view === "list" ? `/today?groomer=${groomer ?? "all"}&view=list&date=${addDaysYmd(date, -1)}` : undefined}
+          next={view === "list" ? `/today?groomer=${groomer ?? "all"}&view=list&date=${addDaysYmd(date, 1)}` : undefined}>
           {stops.length === 0 ? (
             <Empty title="No appointments this day">
               <Link href={`/appointments/new?date=${date}`} className="text-brand underline">Book one</Link>
             </Empty>
-          ) : (
+          ) : view === "map" ? null : (
             <>
               <div className="grid grid-cols-3 gap-2 text-center">
                 <Stat label="Stops" value={String(stops.length)} />
